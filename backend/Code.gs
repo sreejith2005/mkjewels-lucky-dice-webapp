@@ -49,7 +49,7 @@ const CONFIG = {
 };
 
 const SHEETS = {
-  PARTICIPANTS: { name: 'Participants', headers: ['Customer_ID', 'Registered_At', 'Updated_At', 'Full_Name', 'Country_Code', 'Mobile', 'Normalized_Mobile', 'City', 'PINCODE', 'State', 'Country', 'Birthday', 'Anniversary', 'Terms_Accepted_At', 'Marketing_Consent', 'Campaign_ID', 'Source', 'Game_ID', 'Dice_1', 'Dice_2', 'Dice_Total', 'Offer_Percent', 'Is_Jackpot', 'Rolled_At', 'Coupon_Code', 'Coupon_Issue_Date', 'Coupon_Expiry_Date', 'Coupon_Status', 'Online_QR_ID', 'Online_Token_Hash', 'Store_QR_ID', 'Store_Token_Hash', 'Online_Claim_Status', 'Store_Visit_Status', 'Visited_At', 'Redeemed_At', 'Redeemed_By'] },
+  PARTICIPANTS: { name: 'Participants', headers: ['Customer_ID', 'Registered_At', 'Updated_At', 'Full_Name', 'Country_Code', 'Mobile', 'Normalized_Mobile', 'City', 'PINCODE', 'State', 'Country', 'Birthday', 'Anniversary', 'Terms_Accepted_At', 'Marketing_Consent', 'Campaign_ID', 'Source', 'Game_ID', 'Dice_1', 'Dice_2', 'Dice_Total', 'Offer_Percent', 'Is_Jackpot', 'Rolled_At', 'Coupon_Code', 'Coupon_Issue_Date', 'Coupon_Expiry_Date', 'Coupon_Status', 'Online_QR_ID', 'Online_Token_Hash', 'Store_QR_ID', 'Store_Token_Hash', 'Online_Claim_Status', 'Store_Visit_Status', 'Visited_At', 'Redeemed_At', 'Redeemed_By', 'Referral_Code', 'Referred_By_Code', 'Referred_By_Customer_ID', 'Referred_By_Name', 'Referred_By_Mobile'] },
   ONLINE: { name: 'Online_Claims', headers: ['Online_Claim_ID', 'Submitted_At', 'Updated_At', 'Customer_ID', 'Full_Name', 'Mobile', 'City', 'PINCODE', 'Coupon_Code', 'Offer_Percent', 'Coupon_Expiry_Date', 'Product_Interest', 'Contact_Method', 'Preferred_Date', 'Preferred_Time', 'Notes', 'Claim_Status', 'Lead_Status', 'Assigned_To', 'Follow_Up_Notes'] },
   STORE: { name: 'Store_Visits', headers: ['Appointment_ID', 'Booked_At', 'Updated_At', 'Customer_ID', 'Full_Name', 'Mobile', 'City', 'Coupon_Code', 'Offer_Percent', 'Coupon_Expiry_Date', 'Branch_ID', 'Branch', 'Branch_City', 'Appointment_Date', 'Appointment_Time', 'Product_Interest', 'Notes', 'Appointment_Status', 'Reschedule_Count', 'Visit_ID', 'Visited_At', 'Checked_In_By', 'Assigned_To', 'Follow_Up_Notes'] },
   REDEMPTIONS: { name: 'Redemptions', headers: ['Redemption_ID', 'Redeemed_At', 'Coupon_Code', 'Customer_ID', 'Full_Name', 'Mobile', 'Offer_Percent', 'Channel', 'Branch', 'Invoice_No', 'Jewellery_Category', 'Salesperson', 'Original_Making_Charges', 'Discount_Amount', 'Final_Making_Charges', 'Invoice_Value', 'Redeemed_By'] },
@@ -75,7 +75,7 @@ function json_(obj) {
 const ACTIONS = {
   config: actConfig_, register: actRegister_, restore: actRestore_, roll: actRoll_,
   resolve: actResolve_, submitOnline: actSubmitOnline_, availability: actAvailability_,
-  bookStore: actBookStore_, cancelStore: actCancelStore_,
+  bookStore: actBookStore_, cancelStore: actCancelStore_, referrer: actReferrer_,
   staffLogin: actStaffLogin_, staffLookup: actStaffLookup_, staffVisit: actStaffVisit_, staffRedeem: actStaffRedeem_
 };
 
@@ -120,6 +120,10 @@ function actRegister_(p) {
     const idx = table.findIndex(function (r) { return r.Normalized_Mobile === v.normalized && r.Campaign_ID === CONFIG.CAMPAIGN_ID; });
     const now = nowStr_();
     let row, isNew = false;
+    if (idx >= 0 && table[idx].Game_ID) {
+      audit_('CUSTOMER', 'REGISTER_BLOCKED_ALREADY_PLAYED', table[idx].Customer_ID, '');
+      fail_('This mobile number has already played. Please use a different mobile number.', 'ALREADY_PLAYED');
+    }
     if (idx >= 0) {
       row = table[idx];
       // Update permitted details, keep history (IDs, game, coupon) untouched.
@@ -139,8 +143,17 @@ function actRegister_(p) {
         Customer_ID: customerId, Registered_At: now, Updated_At: now, Full_Name: v.name, Country_Code: '+' + v.cc,
         Mobile: v.phone, Normalized_Mobile: v.normalized, City: v.city, PINCODE: v.pincode, State: v.state, Country: v.country,
         Birthday: v.birthday, Anniversary: v.anniversary, Terms_Accepted_At: v.terms ? now : '', Marketing_Consent: v.marketing ? 'YES' : 'NO',
-        Campaign_ID: CONFIG.CAMPAIGN_ID, Source: v.source || CONFIG.SOURCE
+        Campaign_ID: CONFIG.CAMPAIGN_ID, Source: v.source || CONFIG.SOURCE,
+        Referral_Code: referralCode_(customerId)
       };
+      // Who invited this player (referral link ?ref=CODE). Self-referrals and unknown codes are ignored.
+      if (v.ref) {
+        const referrer = table.find(function (r) { return r.Campaign_ID === CONFIG.CAMPAIGN_ID && referralCodeOf_(r) === v.ref; });
+        if (referrer && referrer.Normalized_Mobile !== v.normalized) {
+          Object.assign(row, { Referred_By_Code: v.ref, Referred_By_Customer_ID: referrer.Customer_ID, Referred_By_Name: referrer.Full_Name, Referred_By_Mobile: referrer.Country_Code + ' ' + referrer.Mobile });
+          audit_('CUSTOMER', 'REFERRED', customerId, 'by ' + referrer.Customer_ID + ' (' + v.ref + ')');
+        }
+      }
       appendRow_(sh, row);
       audit_('CUSTOMER', 'REGISTER', customerId, v.marketing ? 'marketing consent: yes' : 'marketing consent: no');
     }
@@ -151,6 +164,15 @@ function actRegister_(p) {
       result: row.Game_ID ? buildResult_(row) : null
     };
   });
+}
+
+/** Public: first name of the person behind a referral code (for "Priya invited you"). */
+function actReferrer_(p) {
+  const code = String(p.code || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{6,10}$/.test(code)) fail_('This invite link is not valid.', 'BAD_REF');
+  const r = findParticipant_(function (x) { return x.Campaign_ID === CONFIG.CAMPAIGN_ID && referralCodeOf_(x) === code; });
+  if (!r) fail_('This invite link is not valid.', 'BAD_REF');
+  return { firstName: firstName_(r.Full_Name) };
 }
 
 function actRestore_(p) {
@@ -453,7 +475,8 @@ function validateRegistration_(p) {
   return {
     name: name, cc: cc, phone: phone, normalized: cc + phone, city: city, pincode: pincode,
     state: cleanText_(p.state, 40), country: cleanText_(p.country, 40) || (cc === '91' ? 'India' : ''),
-    birthday: birthday, anniversary: anniversary, terms: p.terms === true, marketing: p.marketing === true, source: cleanText_(p.source, 40)
+    birthday: birthday, anniversary: anniversary, terms: p.terms === true, marketing: p.marketing === true, source: cleanText_(p.source, 40),
+    ref: /^[A-Za-z0-9]{6,10}$/.test(String(p.ref || '')) ? String(p.ref).toUpperCase() : ''
   };
 }
 
@@ -473,6 +496,7 @@ function assertUsable_(row) {
 function buildResult_(row) {
   return Object.assign(publicReward_(row), {
     customerId: row.Customer_ID,
+    referralCode: referralCodeOf_(row),
     onlineToken: qrToken_('ONLINE', row.Coupon_Code),
     storeToken: qrToken_('STORE', row.Coupon_Code),
     onlineClaim: publicOnline_(findBy_(SHEETS.ONLINE, 'Coupon_Code', row.Coupon_Code)),
@@ -576,6 +600,9 @@ function b64urlDecode_(s) {
   return Utilities.newBlob(Utilities.base64DecodeWebSafe(s, Utilities.Charset.UTF_8)).getDataAsString();
 }
 /** QR tokens are derived (HMAC) so the raw token is never stored; only its SHA-256 hash is. */
+/** Short, stable, unguessable referral code per customer (derived, so older rows get one too). */
+function referralCode_(customerId) { return hmac_('ref|' + CONFIG.CAMPAIGN_ID + '|' + customerId).replace(/[^A-Za-z0-9]/g, '').slice(0, 8).toUpperCase(); }
+function referralCodeOf_(row) { return row.Referral_Code || referralCode_(row.Customer_ID); }
 function qrToken_(kind, coupon) { return hmac_('qr|' + kind + '|' + coupon).slice(0, 32); }
 function signSession_(customerId) { return customerId + '.' + hmac_('session|' + CONFIG.CAMPAIGN_ID + '|' + customerId); }
 function verifySession_(token) {
@@ -621,7 +648,18 @@ function sheet_(def) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sh = ss.getSheetByName(def.name);
   if (!sh) { sh = ss.insertSheet(def.name); initSheet_(sh, def); }
+  else ensureHeaders_(sh, def);
   return sh;
+}
+/** Append any headers added in a newer version of this script (once per execution per sheet). */
+const checkedHeaders_ = {};
+function ensureHeaders_(sh, def) {
+  if (checkedHeaders_[def.name]) return;
+  checkedHeaders_[def.name] = true;
+  const have = headersOf_(sh);
+  const missing = def.headers.filter(function (h) { return have.indexOf(h) < 0; });
+  if (!missing.length) return;
+  sh.getRange(1, have.length + 1, 1, missing.length).setValues([missing]);
 }
 function initSheet_(sh, def) {
   sh.getRange(1, 1, 1, def.headers.length).setValues([def.headers])
@@ -729,7 +767,7 @@ function buildDashboard_() {
     ['Dice games completed', '=COUNTA(' + col(P, 'Game_ID') + ')'],
     ['Coupons issued', '=COUNTA(' + col(P, 'Coupon_Code') + ')'],
     ['Jackpot winners (6 + 6)', '=COUNTIF(' + col(P, 'Is_Jackpot') + ',"YES")'],
-    ['Marketing opt-ins', '=COUNTIF(' + col(P, 'Marketing_Consent') + ',"YES")'],
+    ['Players who came via an invite', '=COUNTA(' + col(P, 'Referred_By_Customer_ID') + ')'],
     ['Online enquiries', '=COUNTA(' + col(O, 'Online_Claim_ID') + ')'],
     ['Store visits booked (confirmed)', '=COUNTIF(' + col(S, 'Appointment_Status') + ',"CONFIRMED")'],
     ['Store visits cancelled', '=COUNTIF(' + col(S, 'Appointment_Status') + ',"CANCELLED")'],
@@ -747,5 +785,12 @@ function buildDashboard_() {
   sh.getRange(4, 1, 12, 1).setFontWeight('bold');
   sh.getRange(17, 1, 1, 2).setFontWeight('bold').setBackground('#101010').setFontColor('#D4B477');
   sh.setColumnWidth(1, 300); sh.setColumnWidth(2, 140);
+  // Top referrers: who invited how many players (updates live)
+  const refId = colLetter_(P.headers.indexOf('Referred_By_Customer_ID') + 1), refName = colLetter_(P.headers.indexOf('Referred_By_Name') + 1);
+  const q = 'select ' + refId + ', ' + refName + ', count(' + refId + ') where ' + refId + ' is not null group by ' + refId + ', ' + refName +
+    ' order by count(' + refId + ') desc label ' + refId + " 'Customer ID', " + refName + " 'Referrer', count(" + refId + ") 'Players invited'";
+  sh.getRange(1, 4, 2, 1).setValues([['Top referrers'], ['=IFERROR(QUERY(\'' + P.name + '\'!' + refId + '2:' + refName + ', "' + q + '", 0), "No referrals yet")']]);
+  sh.getRange(1, 4).setFontSize(13).setFontWeight('bold').setFontColor('#C9A45C');
+  sh.setColumnWidth(4, 130); sh.setColumnWidth(5, 220); sh.setColumnWidth(6, 130);
 }
 function colLetter_(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }

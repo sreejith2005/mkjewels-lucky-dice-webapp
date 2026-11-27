@@ -6,7 +6,7 @@ export default defineConfig({
     target: 'es2020',
     chunkSizeWarningLimit: 900,
     rollupOptions: {
-      input: { main: resolve(import.meta.dirname, 'index.html'), staff: resolve(import.meta.dirname, 'staff.html') },
+      input: { main: resolve(import.meta.dirname, 'index.html'), staff: resolve(import.meta.dirname, 'team-mk7q.html') },
       output: { manualChunks: { three: ['three'], physics: ['cannon-es'] } }
     }
   },

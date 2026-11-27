@@ -45,7 +45,7 @@ VITE_PUBLIC_URL=https://luckydice.mkjewels.in
 
 Upload `dist/` to any static host. Recommended: point a subdomain such as `luckydice.mkjewels.in` at it. Then:
 - Customer link for the invitation message: `https://luckydice.mkjewels.in/?src=whatsapp` (the `src` value is saved as the campaign source)
-- Staff portal: `https://luckydice.mkjewels.in/staff.html` (bookmark it on store and sales-team phones)
+- Staff portal: `https://luckydice.mkjewels.in/team-mk7q.html` (unlisted; share it only with staff and bookmark it on store and sales-team phones)
 
 **Preview mode:** if `VITE_API_URL` is empty (for example during `npm run dev`), the app runs the real `Code.gs` inside the browser against local storage, and a ribbon says "Preview mode". Preview staff logins are `ADMIN01 / 246810`, `STORE01 / 135790` and `ONLINE01 / 112233`. Production builds never include this.
 
@@ -93,8 +93,13 @@ Upload `dist/` to any static host. Recommended: point a subdomain such as `lucky
 ```
 backend/Code.gs            Apps Script API + Sheet setup + dashboard
 index.html, src/main.js    Customer experience
-staff.html, src/staff.js   Staff scanner, check-in and redemption
+team-mk7q.html, src/staff.js   Staff scanner, check-in and redemption
 src/dice/                  3D stage, physics planner, procedural gold & velvet textures, no-WebGL fallback
 src/lib/                   audio synthesis, haptics, QR, coupon PNGs, calendar, phone validation
 tests/                     backend business-rule tests, physics tests
 ```
+
+## Invites and referrals
+Every player gets a personal invite link (`/?ref=CODE`) on their result screen, shared through WhatsApp or Copy link.
+When a friend registers through it, the `Participants` sheet records `Referred_By_Code`, `Referred_By_Customer_ID`, `Referred_By_Name` and `Referred_By_Mobile`, and each player's own `Referral_Code`.
+The Dashboard shows how many players came through invites and a live "Top referrers" table (who invited how many people). These columns are added to the live sheet automatically.

@@ -1,11 +1,9 @@
 /**
- * Synthesised, sample-free dice sound design (no audio files to download):
- * hard dice clacks, muffled landings on velvet, short knocks on the metal rim, a continuous
- * rolling texture while the dice tumble, a rattle while they are shaken, and a soft reveal chime.
- * Audio starts only after a user gesture.
+ * Synthesised dice sound design (no audio files): ringing gold clinks when the dice meet, ticks
+ * off the gold rails, velvet thuds, a whoosh on release, a rattle in the hand, and reveal chimes.
+ * Ported from the approved motion study and mixed louder. Audio starts only after a user gesture.
  */
-let ctx = null, master = null, wet = null, noise = null;
-let rollGain = null, rollFilter = null;
+let ctx = null, master = null, noise = null, lastHit = 0;
 let enabled = (() => { try { return localStorage.getItem('mk_sound') !== 'off'; } catch (e) { return true; } })();
 
 export const soundEnabled = () => enabled;
@@ -13,128 +11,108 @@ export function setSound(on) {
   enabled = on;
   try { localStorage.setItem('mk_sound', on ? 'on' : 'off'); } catch (e) { /* ignore */ }
   if (on) unlockAudio();
-  if (master) master.gain.setTargetAtTime(on ? 0.9 : 0, ctx.currentTime, 0.05);
 }
 
 export function unlockAudio() {
-  if (!enabled) return;
+  if (!enabled || typeof window === 'undefined') return;
+  try {
+    // iOS 17+: play like a game, even when the ringer/silent switch is on
+    if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback';
+  } catch (e) { /* not supported */ }
   try {
     if (!ctx) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
       ctx = new AC({ latencyHint: 'interactive' });
-      master = ctx.createGain(); master.gain.value = 0.9;
-      const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -12; comp.ratio.value = 3; comp.attack.value = 0.002;
-      master.connect(comp).connect(ctx.destination);
-      // small, dry room
-      const conv = ctx.createConvolver();
-      const len = Math.floor(ctx.sampleRate * 0.45), ir = ctx.createBuffer(2, len, ctx.sampleRate);
-      for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 4); }
-      conv.buffer = ir;
-      wet = ctx.createGain(); wet.gain.value = 0.18;
-      wet.connect(conv).connect(master);
-      noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
-      const nd = noise.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
-      // continuous rolling bed (felt friction), silent until dice move
-      const src = ctx.createBufferSource(); src.buffer = noise; src.loop = true;
-      rollFilter = ctx.createBiquadFilter(); rollFilter.type = 'bandpass'; rollFilter.frequency.value = 700; rollFilter.Q.value = 0.7;
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800;
-      rollGain = ctx.createGain(); rollGain.gain.value = 0;
-      src.connect(rollFilter).connect(lp).connect(rollGain).connect(master);
-      src.start();
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -16; comp.knee.value = 8; comp.ratio.value = 5; comp.attack.value = 0.002; comp.release.value = 0.15;
+      const makeup = ctx.createGain(); makeup.gain.value = 1.6;
+      master = ctx.createGain(); master.gain.value = 1;
+      master.connect(comp).connect(makeup).connect(ctx.destination);
+      const n = ctx.sampleRate * 1.2;
+      noise = ctx.createBuffer(1, n, ctx.sampleRate);
+      const d = noise.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
     }
-    if (ctx.state === 'suspended') ctx.resume();
+    if (ctx.state === 'suspended') ctx.resume().catch(() => {});
   } catch (e) { /* audio unavailable */ }
 }
 
-const ready = () => enabled && ctx && ctx.state === 'running';
-const jitter = (x, amt = 0.08) => x * (1 + (Math.random() - 0.5) * 2 * amt);
+const ready = () => enabled && ctx && master && ctx.state === 'running';
 
-function burst({ t, dur, gain, type = 'bandpass', freq, q = 1, reverb = 0 }) {
-  const src = ctx.createBufferSource(); src.buffer = noise;
-  src.playbackRate.value = 0.85 + Math.random() * 0.3;
-  const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
-  const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain, t + 0.0015); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(f).connect(g).connect(master);
-  if (reverb) { const s = ctx.createGain(); s.gain.value = reverb; g.connect(s).connect(wet); }
-  src.start(t, Math.random() * 0.5, dur + 0.05);
-}
-
-/** Struck-object resonance: a few damped sine modes. */
-function modes({ t, freqs, decays, gain, reverb = 0 }) {
-  freqs.forEach((f, i) => {
-    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = jitter(f, 0.04);
-    const g = ctx.createGain(); const d = decays[i];
-    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain / (1 + i * 0.6), t + 0.001); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
-    o.connect(g).connect(master);
-    if (reverb) { const s = ctx.createGain(); s.gain.value = reverb; g.connect(s).connect(wet); }
-    o.start(t); o.stop(t + d + 0.03);
+function bell(freq, partials, dur, gain, delay = 0, pan = 0) {
+  const t = ctx.currentTime + delay, g = ctx.createGain(), p = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+  if (p) { p.pan.value = pan; g.connect(p).connect(master); } else g.connect(master);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  partials.forEach((m, i) => {
+    const o = ctx.createOscillator(), og = ctx.createGain();
+    o.type = 'sine'; o.frequency.value = freq * m; og.gain.value = 1 / (i + 1.4);
+    o.connect(og).connect(g); o.start(t); o.stop(t + dur + 0.05);
   });
 }
 
-function clack(t, s) {   // die against die: hard, bright, very short
-  burst({ t, dur: 0.012, gain: 0.32 * s, type: 'highpass', freq: 2400, q: 0.7 });
-  modes({ t, freqs: [jitter(3300), jitter(5200), jitter(7600)], decays: [0.045, 0.03, 0.018], gain: 0.11 * s, reverb: 0.25 });
+function noiseBurst(type, freq, q, dur, gain, delay = 0, sweepTo) {
+  const t = ctx.currentTime + delay, src = ctx.createBufferSource();
+  src.buffer = noise;
+  const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+  if (sweepTo) f.frequency.exponentialRampToValueAtTime(sweepTo, t + dur);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + Math.min(0.02, dur / 4)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(f).connect(g).connect(master); src.start(t, Math.random() * 0.5); src.stop(t + dur + 0.05);
 }
 
-/** Physics impact → sound. kind: floor | wall | die ; strength: impact velocity */
-export function impact({ kind, strength }) {
+/** Dice against dice: a bright gold clink. */
+export function clink(strength, pan = 0) {
   if (!ready()) return;
-  const s = Math.min(1, Math.max(0.05, strength / 10));
-  const t = ctx.currentTime + 0.004;
-  if (kind === 'floor') {
-    burst({ t, dur: 0.05 + 0.04 * s, gain: 0.6 * s, type: 'lowpass', freq: jitter(420 + 380 * s), q: 0.9 });      // velvet thud
-    burst({ t, dur: 0.008, gain: 0.07 * s, type: 'bandpass', freq: jitter(3200), q: 1.4 });                        // corner tick through the pile
-    const o = ctx.createOscillator(), g = ctx.createGain();
-    o.frequency.setValueAtTime(jitter(140), t); o.frequency.exponentialRampToValueAtTime(65, t + 0.07);
-    g.gain.setValueAtTime(0.28 * s, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
-    o.connect(g).connect(master); o.start(t); o.stop(t + 0.1);
-  } else if (kind === 'wall') {
-    burst({ t, dur: 0.01, gain: 0.3 * s, type: 'bandpass', freq: jitter(2600), q: 0.9 });
-    modes({ t, freqs: [jitter(1750), jitter(2900), jitter(4400)], decays: [0.11, 0.07, 0.045], gain: 0.1 * s, reverb: 0.3 });
-  } else clack(t, s);
+  const now = performance.now(); if (now - lastHit < 35) return; lastHit = now;
+  const s = Math.min(1, strength / 9);
+  bell(1650 + Math.random() * 700, [1, 2.76, 5.4, 8.93], 0.18 + s * 0.35, 0.09 + s * 0.33, 0, pan);
+  noiseBurst('highpass', 3000, 0.7, 0.03, 0.06 + s * 0.12);
 }
-
-/** Dice knocking together in the hand while being shaken. */
+/** Dice landing on velvet. */
+export function thud(strength) {
+  if (!ready()) return;
+  const s = Math.min(1, strength / 10);
+  noiseBurst('lowpass', 260 + s * 300, 0.7, 0.07 + s * 0.05, 0.25 + s * 0.6);
+  noiseBurst('bandpass', 2400, 1.4, 0.02, 0.03 + s * 0.08);
+}
+/** Dice off the gold rail. */
+export function tick(strength, pan = 0) {
+  if (!ready()) return;
+  const s = Math.min(1, strength / 9);
+  bell(2900 + Math.random() * 600, [1, 2.3, 4.1], 0.09 + s * 0.12, 0.07 + s * 0.24, 0, pan);
+  noiseBurst('bandpass', 1800, 2, 0.04, 0.08 + s * 0.16);
+}
+/** Physics impact → sound. */
+export function impact({ kind, strength, pan = 0 }) {
+  if (kind === 'dice') clink(strength, pan);
+  else if (kind === 'wall') tick(strength, pan);
+  else thud(strength);
+}
+/** The release. */
+export function whoosh() { if (ready()) noiseBurst('bandpass', 380, 1.2, 0.55, 0.3, 0, 1400); }
+/** Dice knocking together in the hand. */
 export function rattle(strength = 0.6) {
   if (!ready()) return;
-  const t = ctx.currentTime + 0.002, s = 0.35 + strength * 0.65;
-  clack(t, 0.55 * s);
-  if (Math.random() < 0.75) clack(t + 0.012 + Math.random() * 0.03, 0.3 * s);
-  burst({ t, dur: 0.03, gain: 0.12 * s, type: 'lowpass', freq: 500, q: 0.7 });   // palm
-}
-
-/** Continuous rolling texture, 0..1. Call every frame while dice are moving. */
-export function rolling(level) {
-  if (!ctx || !rollGain) return;
-  const l = enabled ? Math.max(0, Math.min(1, level)) : 0;
-  rollGain.gain.setTargetAtTime(l * 0.16, ctx.currentTime, 0.04);
-  rollFilter.frequency.setTargetAtTime(500 + l * 600, ctx.currentTime, 0.06);
-  // tiny edge ticks as the dice tip over the pile
-  if (ready() && l > 0.15 && Math.random() < l * 0.3) burst({ t: ctx.currentTime + 0.002, dur: 0.006, gain: 0.05 * l, type: 'bandpass', freq: jitter(2600, 0.25), q: 1.2 });
-}
-
-function note(t, f, dur, gain, type = 'sine', rev = 0.5) {
-  const o = ctx.createOscillator(); o.type = type; o.frequency.value = f;
-  const g = ctx.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(gain, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g).connect(master); const s = ctx.createGain(); s.gain.value = rev; g.connect(s).connect(wet);
-  o.start(t); o.stop(t + dur + 0.05);
+  bell(2100 + Math.random() * 500, [1, 2.76, 5.4], 0.12, 0.06 + strength * 0.08, 0, (Math.random() - 0.5) * 0.4);
+  if (Math.random() < 0.6) bell(2500 + Math.random() * 600, [1, 2.76], 0.08, 0.04 + strength * 0.05, 0.02 + Math.random() * 0.03);
+  noiseBurst('lowpass', 500, 0.7, 0.03, 0.05 + strength * 0.08);
 }
 
 export function reveal() {
   if (!ready()) return;
-  const t = ctx.currentTime + 0.02;
-  [1318.5, 1975.5].forEach((f, i) => { note(t + i * 0.11, f, 1.6, 0.07); note(t + i * 0.11, f * 2.005, 0.6, 0.015); });
+  [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => bell(f * 2, [1, 2.01, 3, 4.2], 1.8, 0.2, i * 0.13, (i - 1.5) * 0.25));
+  const t = ctx.currentTime;
+  [261.63, 329.63, 392].forEach((f) => {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'triangle'; o.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.07, t + 0.4); g.gain.exponentialRampToValueAtTime(0.0001, t + 2.6);
+    o.connect(g).connect(master); o.start(t); o.stop(t + 2.7);
+  });
 }
-
 export function jackpot() {
   if (!ready()) return;
-  const t = ctx.currentTime + 0.02;
-  [1046.5, 1318.5, 1568, 2093].forEach((f, i) => { note(t + i * 0.1, f, 2, 0.07); note(t + i * 0.1, f * 2.005, 0.7, 0.014); });
-  [261.6, 392].forEach((f) => note(t, f, 2.4, 0.035, 'triangle', 0.6));
+  reveal();
+  for (let i = 0; i < 14; i++) bell(2200 + Math.random() * 2600, [1, 2.76, 5.4], 0.6, 0.07, 0.5 + i * 0.09, Math.random() * 1.6 - 0.8);
+  [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((f, i) => bell(f, [1, 2, 3, 4.1], 2.6, 0.14, 1.6 + i * 0.05));
 }
-
-export function tap() {
-  if (!ready()) return;
-  modes({ t: ctx.currentTime, freqs: [2600], decays: [0.04], gain: 0.03 });
-}
+export function tap() { if (ready()) bell(2100, [1, 2.76], 0.08, 0.04); }

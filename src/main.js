@@ -1,6 +1,6 @@
 import './styles/app.css';
 import { api } from './api.js';
-import { PREVIEW, claimUrl, PUBLIC_URL } from './config.js';
+import { claimUrl, PUBLIC_URL } from './config.js';
 import { $, $$, esc, toast, copyText, calendar, datePicker, chips, countUp, prettyDate, addDays, istToday, time12, googleCalendarUrl } from './lib/ui.js';
 import { countryOptions, validatePhone } from './lib/phone.js';
 import { qrCanvas } from './lib/qr.js';
@@ -11,7 +11,7 @@ import { confetti } from './lib/fx.js';
 import { motionSupported, motionNeedsPermission, motionPermission, requestMotion, shakeDetector } from './lib/motion.js';
 
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const SESSION_KEY = 'mk_ldd_session';
+const SESSION_KEY = 'mk_ldd_session', REF_KEY = 'mk_ldd_ref', THEME_KEY = 'mk_theme';
 const store = {
   get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* private mode */ } },
@@ -27,25 +27,56 @@ const DEFAULT_CONFIG = {
   interests: ['Gold Jewellery', 'Diamond Jewellery', 'Bridal Jewellery', 'Necklace', 'Earrings', 'Bangles', 'Bracelet', 'Rings', 'Pendant', 'Mangalsutra', 'Other'],
   today: istToday()
 };
+const OFFERS = { 2: 20, 3: 22, 4: 24, 5: 26, 6: 28, 7: 30, 8: 33, 9: 36, 10: 40, 11: 45, 12: 50 };
 
-const S = { config: DEFAULT_CONFIG, session: store.get(SESSION_KEY), firstName: '', result: null, stage: null, rolling: false, claim: null };
+const S = { config: DEFAULT_CONFIG, session: store.get(SESSION_KEY), firstName: '', result: null, claim: null, hero: null, game: null, stageMod: null, ref: '' };
+
+/* ================================================================ theme */
+const themeBtn = $('.theme-toggle');
+function paintTheme() {
+  const t = document.documentElement.dataset.theme;
+  themeBtn.innerHTML = `<svg class="icon"><use href="#i-${t === 'light' ? 'moon' : 'sun'}"/></svg>`;
+  themeBtn.setAttribute('aria-label', t === 'light' ? 'Switch to dark mode' : 'Switch to light mode');
+  $('meta[name="theme-color"]').setAttribute('content', t === 'light' ? '#fbf8f2' : '#131210');
+}
+themeBtn.addEventListener('click', () => {
+  const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = next; store.set(THEME_KEY, next); paintTheme(); haptic(6);
+});
+paintTheme();
 
 /* ================================================================ loader */
 const loader = { el: $('#loader'), bar: $('.ld-bar i') };
 function progress(p) { loader.bar.style.setProperty('--p', `${p}%`); }
 function hideLoader() { progress(100); setTimeout(() => loader.el.classList.add('done'), 200); }
 
-/* ================================================================ views */
+/* ================================================================ views & 3D stages */
 const views = $$('.view');
 let current = null;
 function go(name, { scroll = true } = {}) {
   views.forEach((v) => { v.hidden = v.dataset.view !== name; });
   current = name;
-  const host = { welcome: '#stage-welcome', play: '#stage-play' }[name];
-  if (host && S.stage) S.stage.mount($(host));
-  if (S.stage) S.stage.setEnabled(name === 'play');
+  if (name === 'welcome') ensureHero(); else disposeHero();
+  if (name !== 'play') disposeGame();
   if (scroll) window.scrollTo(0, 0);
   document.title = { welcome: 'MK Jewels – Lucky Double Dice', register: 'Your details · MK Jewels', play: 'Your roll · MK Jewels', online: 'Shop online · MK Jewels', store: 'Book a store visit · MK Jewels' }[name] || document.title;
+}
+
+function makeStage(host, mode) {
+  const M = S.stageMod;
+  if (M && M.webglAvailable()) {
+    try { return new M.DiceStage(host, { mode, quality: M.detectQuality(), reducedMotion: reduced }); } catch (e) { /* fall through */ }
+  }
+  return S.Fallback ? new S.Fallback(host) : null;
+}
+function ensureHero() { if (!S.hero && S.stageMod) S.hero = makeStage($('#stage-welcome'), 'showcase'); }
+function disposeHero() { if (S.hero) { S.hero.dispose(); S.hero = null; } }
+function disposeGame() { if (S.game) { S.game.dispose(); S.game = null; } roll = null; S.rolling = false; shake.stop(); }
+function ensureGame() {
+  disposeGame();
+  S.game = makeStage($('#stage-play'), 'game');
+  if (S.game) wireGame(S.game);
+  return S.game;
 }
 
 function showMessage(title, body, cta) {
@@ -66,40 +97,44 @@ paintSound();
 addEventListener('pointerdown', () => sfx.unlockAudio(), { capture: true });
 addEventListener('keydown', () => sfx.unlockAudio(), { capture: true });
 
-let lastHaptic = 0;
-const buzz = (ms, gap = 45) => { const now = performance.now(); if (now - lastHaptic < gap) return; lastHaptic = now; haptic(Math.round(ms)); };
-function wireStage(stage) {
+let lastBuzz = 0;
+const buzz = (ms, gap = 40) => { const now = performance.now(); if (now - lastBuzz < gap) return; lastBuzz = now; haptic(Math.round(ms)); };
+function wireGame(stage) {
   stage.on('impact', (e) => {
     sfx.impact(e);
-    if (e.strength > 1.4) buzz(e.kind === 'floor' ? Math.min(24, 7 + e.strength * 1.3) : e.kind === 'wall' ? 12 : 8);
+    if (e.kind === 'floor' && e.strength > 2) buzz(Math.min(30, 6 + e.strength * 2.2));
+    else if (e.kind === 'dice' && e.strength > 1.5) buzz(Math.min(28, 6 + e.strength * 3));
+    else if (e.kind === 'wall' && e.strength > 1.5) buzz(Math.min(24, 5 + e.strength * 2.5));
   });
-  stage.on('rattle', (e) => { sfx.rattle(e.strength); buzz(5 + e.strength * 8, 60); });
-  stage.on('roll', (e) => sfx.rolling(e.level));
-  stage.on('settled', () => buzz(16, 0));
-  stage.on('grab', () => { if (!startRoll('drag')) stage.cancelHold(); });
-  stage.on('release', ({ velocity }) => release(velocity));
+  stage.on('rattle', (e) => { sfx.rattle(e.strength); buzz(6 + e.strength * 10, 55); });
+  stage.on('throw', () => { sfx.whoosh(); buzz(14, 0); });
+  stage.on('settled', () => buzz(22, 0));
+  stage.on('grab', () => { sfx.unlockAudio(); buzz(6, 0); setHint('Now swipe up and let go'); });
+  stage.on('swipe', ({ velocity }) => startRoll('swipe', { velocity }));
 }
 
 /* ================================================================ shake to roll */
 const shake = shakeDetector({
   enabled: () => current === 'play' && !S.rolling && !S.result && playView.dataset.state === 'ready',
   onStart: () => { startRoll('shake'); },
-  onMove: (x, y, z) => S.stage && S.stage.shakeInput(x, y, z),
-  onEnd: () => release(null)
+  onMove: (x, y, z) => S.game && S.game.shakeInput(x, y, z),
+  onEnd: ({ power }) => releaseShake(power)
 });
 
+const readyHint = () => (motionSupported() && motionPermission() === 'granted' ? 'Shake your phone, or swipe the dice up' : 'Swipe the dice up to throw them');
+function setHint(text) { $('#play-hint').textContent = text; }
 function paintPlayHint() {
-  const hint = $('#play-hint'), mbtn = $('#btn-motion');
-  const touch = matchMedia('(pointer: coarse)').matches;
-  if (motionSupported() && motionPermission() === 'granted') { hint.textContent = 'Shake your phone to roll, or flick the dice.'; mbtn.hidden = true; shake.start(); }
-  else if (motionNeedsPermission() && motionPermission() === 'unknown') { hint.textContent = 'Flick the dice, or tap Roll.'; mbtn.hidden = false; }
-  else { hint.textContent = touch ? 'Flick the dice, or tap Roll.' : 'Drag and flick the dice, or press Roll.'; mbtn.hidden = true; }
+  const mbtn = $('#btn-motion');
+  if (motionSupported() && motionPermission() === 'granted') { mbtn.hidden = true; shake.start(); }
+  else mbtn.hidden = !(motionNeedsPermission() && motionPermission() === 'unknown');
+  if (playView.dataset.state === 'ready') setHint(readyHint());
 }
 $('#btn-motion').addEventListener('click', () => {
-  requestMotion().then((p) => { if (p !== 'granted') toast('Shake is off. You can still flick the dice or tap Roll.'); paintPlayHint(); });
+  requestMotion().then((p) => { if (p !== 'granted') toast('Shake is off. You can still swipe the dice or tap Roll.'); paintPlayHint(); });
 });
 
 /* ================================================================ registration */
+let resetRegistration = () => {};
 function buildRegistration() {
   const sel = $('#f-cc');
   const { top, rest } = countryOptions();
@@ -166,11 +201,17 @@ function buildRegistration() {
   });
   $('#f-phone').addEventListener('input', (e) => { e.target.value = e.target.value.replace(/[^\d\s-]/g, ''); });
 
+  resetRegistration = () => {
+    $('#reg-form').reset(); sel.value = 'IN'; syncCc(); dob.clear(); ann.clear(); pinHint.hidden = true; pinMeta.state = '';
+    Object.keys(fields).forEach((k) => { setErr(k, ''); delete fieldEl(k).dataset.touched; });
+    $('#reg-error').textContent = '';
+  };
+
   $('#reg-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     let first = null;
     Object.keys(fields).forEach((k) => { const m = fields[k](); setErr(k, m); if (m && !first) first = k; });
-    if (first) { const el = $('input, button', fieldEl(first)); el && el.focus({ preventScroll: true }); fieldEl(first).scrollIntoView({ behavior: 'smooth', block: 'center' }); haptic(20); return; }
+    if (first) { const el = $('input, button', fieldEl(first)); if (el) el.focus({ preventScroll: true }); fieldEl(first).scrollIntoView({ behavior: 'smooth', block: 'center' }); haptic(20); return; }
     // iOS only allows the motion prompt from inside a tap, so ask now (shake to roll on the next screen)
     if (motionNeedsPermission() && motionPermission() === 'unknown') requestMotion().then(paintPlayHint);
     const phone = validatePhone(sel.value, $('#f-phone').value);
@@ -180,15 +221,16 @@ function buildRegistration() {
       const res = await api('register', {
         name: $('#f-name').value, cc: phone.cc, phone: phone.national, city: $('#f-city').value, pincode: $('#f-pin').value,
         state: pinMeta.state, country: sel.value === 'IN' ? 'India' : sel.selectedOptions[0].textContent.replace(/\s*\(\+\d+\)$/, ''),
-        birthday: dob.value || '', anniversary: ann.value || '',
-        source: new URLSearchParams(location.search).get('src') || ''
+        birthday: dob.value || '', anniversary: ann.value || '', ref: S.ref,
+        source: new URLSearchParams(location.search).get('src') || (S.ref ? 'referral' : '')
       });
-      S.session = res.session; S.firstName = res.firstName; store.set(SESSION_KEY, res.session);
+      S.session = res.session; S.firstName = res.firstName; S.result = res.result || null; store.set(SESSION_KEY, res.session);
       haptic(12); sfx.tap();
-      if (res.result) { S.result = res.result; enterPlay({ returning: true }); }
-      else enterPlay();
+      enterPlay();
     } catch (err) {
-      $('#reg-error').textContent = err.message; toast(err.message, 'error');
+      if (err.code === 'ALREADY_PLAYED' || err.code === 'PHONE') {
+        setErr('phone', err.message); fieldEl('phone').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('#f-phone').focus({ preventScroll: true }); haptic(20);
+      } else { $('#reg-error').textContent = err.message; toast(err.message, 'error'); }
     } finally { setBusy(btn, false); }
   });
 }
@@ -196,101 +238,86 @@ function buildRegistration() {
 function setBusy(btn, busy, label) {
   const lbl = $('.lbl', btn);
   if (busy) { btn.dataset.label = lbl.textContent; lbl.textContent = label || 'Please wait'; btn.disabled = true; btn.insertAdjacentHTML('afterbegin', '<span class="spinner" aria-hidden="true"></span>'); }
-  else { if (btn.dataset.label) lbl.textContent = btn.dataset.label; btn.disabled = false; const s = $('.spinner', btn); s && s.remove(); }
+  else { if (btn.dataset.label) lbl.textContent = btn.dataset.label; btn.disabled = false; const s = $('.spinner', btn); if (s) s.remove(); }
 }
 
 /* ================================================================ play */
 const playView = $('#v-play');
-const rollMsg = $('#roll-msg');
-let msgTimer;
-function rollStatus(text, delay = 0) {
-  clearTimeout(msgTimer);
-  rollMsg.classList.remove('on');
-  if (!text) return;
-  msgTimer = setTimeout(() => { rollMsg.textContent = text; rollMsg.classList.add('on'); }, delay);
-}
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function enterPlay({ returning = false } = {}) {
-  $('#play-greeting').textContent = S.firstName ? `Good luck, ${S.firstName}` : 'Your roll';
   $('#dice-readout').classList.remove('on');
+  playView.dataset.state = S.result ? 'won' : 'ready';
+  go('play');
+  ensureGame();
   if (S.result) {
-    playView.dataset.state = 'won';
-    go('play');
-    if (S.stage) S.stage.showResult(S.result.dice);
+    if (S.game) S.game.showResult(S.result.dice);
     revealResult(S.result, { animate: false, returning });
   } else {
-    playView.dataset.state = 'ready';
-    go('play');
-    if (S.stage) S.stage.rest([6, 6]);
-    rollStatus('');
+    $('#play-eyebrow').textContent = 'The golden tray';
+    $('#play-greeting').textContent = S.firstName ? `Good luck, ${S.firstName}` : 'Your roll';
     $('#btn-roll').disabled = false;
     paintPlayHint();
   }
 }
 
 let roll = null;
-function startRoll(source) {
-  if (S.rolling || S.result || current !== 'play' || !S.stage) return false;
+function startRoll(source, { velocity = null } = {}) {
+  if (S.rolling || S.result || current !== 'play' || !S.game) return false;
   S.rolling = true;
-  roll = { source, release: null, res: null, thrown: false };
+  const r = roll = { source, velocity, power: 0.55, released: source !== 'shake', minDone: false, res: null, thrown: false };
   playView.dataset.state = 'rolling';
-  $('#btn-roll').disabled = true;
-  sfx.unlockAudio();
-  haptic(8);
-  rollStatus('');
-  if (source === 'button') {
-    S.stage.beginHold('auto');
-    setTimeout(() => release(null), reduced ? 300 : 1500);
-  } else if (source === 'shake') {
-    S.stage.beginHold('shake');
-  }
-  const mine = roll;
+  S.game.setLocked(true);
+  sfx.unlockAudio(); haptic(10);
+  S.game.beginAwait(source === 'shake' ? 'shake' : 'auto');
+  setHint(source === 'shake' ? 'Keep shaking…' : 'Rolling…');
+  setTimeout(() => { r.minDone = true; tryThrow(r); }, source === 'button' ? (reduced ? 200 : 1100) : source === 'swipe' ? 250 : 0);
   api('roll', { session: S.session })
-    .then((res) => { if (roll !== mine) return; mine.res = res; tryThrow(); })
-    .catch((err) => { if (roll === mine) failRoll(err); });
+    .then((res) => { if (roll !== r) return; r.res = res; tryThrow(r); })
+    .catch((err) => { if (roll === r) failRoll(err); });
   return true;
 }
 
-function release(velocity) {
-  if (!roll || roll.release) return;
-  roll.release = { velocity, at: performance.now() };
-  if (!roll.res) {
-    S.stage.idleShake();
-    rollStatus('One moment', 700);
-  }
-  tryThrow();
+function releaseShake(power) {
+  const r = roll;
+  if (!r || r.source !== 'shake' || r.released) return;
+  r.released = true; r.power = Math.max(0.3, power);
+  tryThrow(r);
 }
 
-async function tryThrow() {
-  const r = roll;
-  if (!r || r.thrown || !r.res || !r.release) return;
+async function tryThrow(r) {
+  if (r !== roll || r.thrown || !r.res || !r.released || !r.minDone) return;
   r.thrown = true;
-  const fresh = performance.now() - r.release.at < 160;
   const res = r.res;
-  rollStatus('');
   S.result = res.result;
-  if (res.existing) toast('You have already played. Here is your reward.');
-  await S.stage.throwTo(res.result.dice, { velocity: fresh ? r.release.velocity : null });
+  if (res.existing) toast('This number has already played. Here is its reward.');
+  setHint('');
+  await S.game.throw(res.result.dice, { velocity: r.velocity, power: r.power });
+  if (r !== roll) return;
+  await delay(reduced ? 150 : 650);
   roll = null;
   revealResult(res.result, { animate: !res.existing });
 }
 
 function failRoll(err) {
   roll = null;
-  rollStatus('');
   S.rolling = false;
-  S.stage.cancelHold();
-  playView.dataset.state = 'ready'; $('#btn-roll').disabled = false;
+  if (S.game) { S.game.cancelAwait(); S.game.setLocked(false); }
+  playView.dataset.state = 'ready'; $('#btn-roll').disabled = false; setHint(readyHint());
   toast(err.message, 'error');
-  if (err.code === 'NO_SESSION') { store.del(SESSION_KEY); S.session = null; setTimeout(() => go('register'), 1200); }
+  if (err.code === 'NO_SESSION') { store.del(SESSION_KEY); S.session = null; setTimeout(() => { resetRegistration(); go('register'); }, 1200); }
 }
 
 /* ================================================================ reveal */
+const inviteLink = (r) => `${PUBLIC_URL}/${r && r.referralCode ? `?ref=${encodeURIComponent(r.referralCode)}` : ''}`;
+
 function revealResult(r, { animate, returning } = {}) {
   S.rolling = false;
+  shake.stop();
   playView.dataset.state = 'won';
   const done = r.status === 'REDEEMED' || r.status === 'EXPIRED';
-  $('#play-greeting').textContent = returning ? `Welcome back, ${r.firstName}` : `Well rolled, ${r.firstName}`;
+  $('#play-eyebrow').textContent = returning ? 'Welcome back' : 'Your result';
+  $('#play-greeting').textContent = returning ? `${r.firstName}, here is your reward` : `Well rolled, ${r.firstName}`;
   $('#r-eyebrow').textContent = `You rolled ${r.dice[0]} and ${r.dice[1]}`;
   $('#r-jackpot').hidden = !r.jackpot;
   $('#dice-readout').innerHTML = `<span>${r.dice[0]} + ${r.dice[1]} = <b>${r.total}</b></span>`;
@@ -303,16 +330,17 @@ function revealResult(r, { animate, returning } = {}) {
   const offerEl = $('#r-offer');
   if (animate) {
     countUp(offerEl, 20, r.offer, 1100);
-    if (r.jackpot) { sfx.jackpot(); hapticPattern([25, 60, 25, 60, 90]); confetti(120); }
-    else { sfx.reveal(); hapticPattern([16, 60, 24]); confetti(50); }
+    if (r.jackpot) { sfx.jackpot(); hapticPattern([30, 60, 30, 60, 80, 100, 160]); confetti(160); }
+    else { sfx.reveal(); hapticPattern([18, 70, 30]); confetti(70); }
     setTimeout(() => {
-      const el = $('.reward'), y = el.getBoundingClientRect().top + scrollY - innerHeight * 0.3;
-      if (y > scrollY + 40) window.scrollTo({ top: y, behavior: reduced ? 'auto' : 'smooth' });
+      const el = $('.reward'), y = el.getBoundingClientRect().top + scrollY - innerHeight * 0.28;
+      if (y > scrollY + 40 && innerWidth < 1024) window.scrollTo({ top: y, behavior: reduced ? 'auto' : 'smooth' });
     }, 900);
   } else offerEl.textContent = r.offer;
   paintClaimStatus(r);
   qrDrawn = false;
-  const det = $('.qr-more'); if (det.open) drawQrs();
+  if ($('.qr-more').open) drawQrs();
+  paintMyReward();
 }
 
 let qrDrawn = false;
@@ -345,10 +373,17 @@ function bindResultActions() {
     const l = $('#btn-copy .lbl'); l.textContent = 'Copied'; haptic(8); setTimeout(() => { l.textContent = 'Copy'; }, 1600);
   });
   $('#btn-dl-coupon').addEventListener('click', async () => { const b = await couponPng(S.result); downloadBlob(b, `MK-Jewels-${S.result.couponCode}.png`); toast('Coupon saved'); });
-  $('#btn-wa-coupon').addEventListener('click', () => {
+  $('#btn-share-wa').addEventListener('click', () => {
     const r = S.result;
-    const text = `I won ${r.offer}% off making charges at MK Jewels.\nCoupon ${r.couponCode}, valid until ${prettyDate(r.expiresOn)}.\nPlay here: ${PUBLIC_URL}/`;
+    const text = `I just won ${r.offer}% off making charges at MK Jewels with Lucky Double Dice. Roll the golden dice for your own reward: ${inviteLink(r)}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+  });
+  $('#btn-share-copy').addEventListener('click', async () => {
+    const link = inviteLink(S.result);
+    if (navigator.share && matchMedia('(pointer: coarse)').matches) {
+      try { await navigator.share({ title: 'MK Jewels Lucky Double Dice', text: 'Roll the golden dice and win up to 50% off making charges at MK Jewels.', url: link }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    if (await copyText(link)) { const l = $('#btn-share-copy .lbl'); l.textContent = 'Link copied'; haptic(8); setTimeout(() => { l.textContent = 'Copy link'; }, 1800); }
   });
   $$('[data-claim]').forEach((b) => b.addEventListener('click', () => {
     const online = b.dataset.claim === 'online';
@@ -543,7 +578,7 @@ const SHEETS = {
     </ul>`],
   privacy: ['Privacy', `
     <p>We collect your name, mobile number, city and PIN code to issue and verify your reward. Your birthday and anniversary are optional.</p>
-    <h4>How we use it</h4><ul><li>To issue your coupon and prevent duplicate entries.</li><li>To contact you about your online enquiry or store appointment.</li></ul>
+    <h4>How we use it</h4><ul><li>To issue your coupon and prevent duplicate entries.</li><li>To contact you about your online enquiry or store appointment.</li><li>If someone joins through your invite link, we note that you invited them.</li></ul>
     <h4>What we never do</h4><ul><li>We never sell your data.</li><li>Your QR codes contain no personal details, only a secure reference.</li></ul>
     <p>To update or delete your details, contact MK Jewels at any store or via <a href="https://www.mkjewels.in" target="_blank" rel="noopener">mkjewels.in</a>.</p>`]
 };
@@ -560,57 +595,89 @@ function confirmSheet(title, body, ok) {
   });
 }
 
-/* ================================================================ navigation */
-$('#btn-unlock').addEventListener('click', () => {
+/* ================================================================ home, navigation */
+function paintOdds() {
+  const items = Object.entries(OFFERS).filter(([t]) => t !== '12').map(([t, o]) => `<li><b>${o}%</b><span>Total ${t}</span></li>`).join('');
+  $('#odds').innerHTML = `${items}<li class="jack"><b>${OFFERS[12]}%</b><span>Double six</span></li>`;
+}
+
+/** "View my reward" on the home screen when this device already has a player. */
+function paintMyReward() {
+  const b = $('#btn-my-reward');
+  b.hidden = !S.session;
+  b.textContent = S.result ? 'View my reward' : 'Continue my roll';
+}
+
+function goHome() {
+  if (location.search && !/[?&]ref=/.test(location.search)) history.pushState({}, '', location.pathname);
+  go('welcome');
+  paintMyReward();
+}
+
+$('#btn-play').addEventListener('click', () => {
   sfx.tap(); haptic(8);
-  if (S.session) { restoreSession(); return; }
+  resetRegistration();
   go('register'); setTimeout(() => $('#f-name').focus({ preventScroll: true }), 300);
 });
-$$('[data-go]').forEach((b) => b.addEventListener('click', () => { go(b.dataset.go); if (b.dataset.go === 'welcome' && S.stage) S.stage.rest([6, 6]); }));
-$$('[data-back]').forEach((b) => b.addEventListener('click', () => { history.pushState({}, '', location.pathname); route(); }));
+$('#btn-my-reward').addEventListener('click', async () => {
+  sfx.tap(); haptic(8);
+  if (await restoreSession()) enterPlay({ returning: !!S.result });
+});
+$$('[data-home]').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); goHome(); }));
+$$('[data-back]').forEach((b) => b.addEventListener('click', () => { history.pushState({}, '', location.pathname); if (S.session) { restoreSession().then((ok) => (ok ? enterPlay({ returning: true }) : goHome())); } else goHome(); }));
 addEventListener('popstate', () => route());
 
 async function restoreSession() {
+  if (!S.session) return false;
   try {
     const res = await api('restore', { session: S.session });
     S.firstName = res.firstName; S.result = res.result;
-    enterPlay({ returning: !!res.result });
+    paintMyReward();
     return true;
   } catch (err) {
-    if (err.code === 'NO_SESSION') { store.del(SESSION_KEY); S.session = null; }
-    go('welcome');
+    if (err.code === 'NO_SESSION') { store.del(SESSION_KEY); S.session = null; S.result = null; }
+    paintMyReward();
     return false;
   }
+}
+
+/** Invite links: ?ref=CODE credits the person who shared it. */
+function readReferral() {
+  const q = new URLSearchParams(location.search), ref = q.get('ref');
+  if (ref && /^[A-Za-z0-9]{6,10}$/.test(ref)) {
+    store.set(REF_KEY, ref.toUpperCase());
+    q.delete('ref');
+    history.replaceState({}, '', location.pathname + (q.toString() ? `?${q}` : ''));
+  }
+  S.ref = store.get(REF_KEY) || '';
+  if (!S.ref) return;
+  api('referrer', { code: S.ref }).then((r) => {
+    const el = $('#invite'); $('span', el).textContent = `${r.firstName} invited you to play`; el.hidden = false;
+  }).catch((err) => { if (err.code === 'BAD_REF') { store.del(REF_KEY); S.ref = ''; } });
 }
 
 async function route() {
   const q = new URLSearchParams(location.search);
   const c = q.get('c'), t = q.get('t');
   if (c && t) { await openClaim(c === 'online' ? 'ONLINE' : 'STORE', t, false); return; }
-  if (S.session) { progress(70); await restoreSession(); hideLoader(); return; }
-  go('welcome'); if (S.stage) S.stage.rest([6, 6]);
+  go('welcome');
+  paintMyReward();
   hideLoader();
+  restoreSession();
 }
 
 /* ================================================================ boot */
 async function boot() {
-  if (PREVIEW) $('#preview-ribbon').hidden = false;
   progress(15);
+  paintOdds();
+  readReferral();
   buildRegistration();
   bindResultActions();
   api('config').then((r) => { S.config = { ...DEFAULT_CONFIG, ...r.config }; }).catch(() => {});
   progress(35);
-  try {
-    const mod = await import('./dice/stage.js');
-    progress(65);
-    if (mod.webglAvailable()) {
-      S.stage = new mod.DiceStage({ quality: mod.detectQuality(), reducedMotion: reduced, logoUrl: '/brand/mk-logo.png' });
-    } else throw new Error('no webgl');
-  } catch (e) {
-    const { FallbackStage } = await import('./dice/fallback.js');
-    S.stage = new FallbackStage();
-  }
-  wireStage(S.stage);
+  try { S.stageMod = await import('./dice/stage.js'); } catch (e) { S.stageMod = null; }
+  try { S.Fallback = (await import('./dice/fallback.js')).FallbackStage; } catch (e) { /* */ }
+  progress(70);
   if (document.fonts) await Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 1200))]);
   progress(85);
   await route();

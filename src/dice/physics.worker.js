@@ -5,5 +5,5 @@ self.onmessage = (e) => {
   const { id, tray, hand, velocity, power } = e.data;
   let plan = null;
   try { plan = planThrow(tray, hand, velocity, { power }); } catch (err) { plan = null; }
-  self.postMessage({ id, plan });
+  self.postMessage({ id, plan }, plan ? [plan.frames.buffer] : []);
 };

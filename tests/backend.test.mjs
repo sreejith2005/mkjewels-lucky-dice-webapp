@@ -66,10 +66,24 @@ ok(R.onlineToken !== R.storeToken && R.onlineToken.length === 32, 'two distinct 
 const roll2 = call('roll', { session: reg.session });
 ok(roll2.existing && roll2.result.couponCode === R.couponCode && roll2.result.dice.join() === R.dice.join(), 'second roll returns SAME result');
 const reg3 = call('register', base);
-ok(reg3.result && reg3.result.couponCode === R.couponCode, 're-registering shows existing reward');
+ok(!reg3.ok && reg3.code === 'ALREADY_PLAYED', 'a mobile that already played cannot register again (' + reg3.code + ')');
+ok(!JSON.stringify(reg3).includes(R.couponCode), 're-registering never reveals the existing coupon');
 ok(call('restore', { session: reg.session }).result.onlineToken === R.onlineToken, 'refresh restores identical QR tokens');
 const rawRow = sheet('Participants')[1].join('|');
 ok(!rawRow.includes(R.onlineToken) && !rawRow.includes(R.storeToken), 'raw tokens are never stored (hash only)');
+
+section('Referrals');
+ok(/^[A-Z0-9]{8}$/.test(R.referralCode), 'every result carries a referral code ' + R.referralCode);
+ok(call('referrer', { code: R.referralCode }).firstName === 'Priya', 'invite code resolves to the referrer first name');
+ok(call('referrer', { code: 'NOPE1234' }).code === 'BAD_REF' && call('referrer', { code: '<x>' }).code === 'BAD_REF', 'unknown or malformed invite codes rejected');
+const friend = call('register', { ...base, name: 'Anil Mehta', phone: '91234 56780', ref: R.referralCode.toLowerCase() });
+ok(friend.ok, 'invited friend registers');
+const PH = sheet('Participants')[0], prow = (name) => sheet('Participants').find((r) => r[PH.indexOf('Full_Name')] === name);
+const fr = prow('Anil Mehta');
+ok(fr[PH.indexOf('Referred_By_Customer_ID')] === 'MKC-100001' && fr[PH.indexOf('Referred_By_Name')].startsWith('Priya') && fr[PH.indexOf('Referred_By_Code')] === R.referralCode, 'friend is linked to the referrer');
+ok(/^[A-Z0-9]{8}$/.test(fr[PH.indexOf('Referral_Code')]) && fr[PH.indexOf('Referral_Code')] !== R.referralCode, 'friend gets an own referral code');
+call('register', { ...base, name: 'Ravi Self', phone: '90000 11122', ref: 'ZZZZ9999' });
+ok(prow('Ravi Self')[PH.indexOf('Referred_By_Customer_ID')] === '', 'unknown invite code is ignored at registration');
 
 section('QR tokens');
 ok(call('resolve', { token: 'x'.repeat(32) }).code === 'BAD_TOKEN', 'invalid token rejected');

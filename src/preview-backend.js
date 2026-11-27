@@ -7,7 +7,7 @@
 import source from '../backend/Code.gs?raw';
 import { createGasRuntime } from './gas-shim.js';
 
-const KEY = 'mk_preview_db_v1';
+const KEY = 'mk_preview_db_v2';
 export const PREVIEW_STAFF = { id: 'ADMIN01', pin: '246810' };
 let rt;
 

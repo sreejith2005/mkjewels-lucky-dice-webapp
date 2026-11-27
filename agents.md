@@ -4,7 +4,7 @@ Instructions for any AI coding agent (or developer) working in this repo. Read t
 
 ## What this is
 This is a mobile-first campaign web app for MK Jewels (luxury gold and diamond jewellery, est. 1999, Mumbai | Ahmedabad).
-- A customer opens an invitation link and registers.
+- A customer opens the site (or a friend's invite link `?ref=CODE`) and registers. The home page is always reachable; each mobile number can play only once.
 - They roll two realistic 3D gold dice and win 20–50% off **making charges**.
 - They claim the reward with one of two QR codes: **Online Claim** (enquiry) or **Store Visit** (appointment).
 - Staff scan the QR, mark the visit and redeem the coupon **once**.
@@ -34,11 +34,10 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
 | `src/api.js` | `api(action, payload)`. POST with `text/plain` (avoids CORS preflight) to the Apps Script `/exec` URL, falling back to preview. It throws `ApiError{message, code}`. |
 | `src/config.js` | `API_URL`, `PUBLIC_URL`, `claimUrl(kind, token)`, brand links. |
 | `index.html` + `src/main.js` | Customer SPA. Views are `<section data-view>`: welcome → register → play (states `ready` / `rolling` / `won`) → online / store / message. The router reads `?c=online\|store&t=TOKEN`. |
-| `staff.html` + `src/staff.js` | Staff portal: login, camera scan (`qr-scanner`), search, mark visited, redeem. |
-| `src/dice/physics.js` | cannon-es throw planner (pure, Node-testable). Chamfered-cube dice, prefers 2.25–5.5 s rolls. |
+| `team-mk7q.html` + `src/staff.js` | Staff portal (unlisted URL `/team-mk7q.html`, never linked from the customer app): login, camera scan, search, mark visited, redeem. |
+| `src/dice/physics.js` | cannon-es throw planner (pure, Node-testable), tuned to the approved motion study `MK Jewels – Lucky Double Dice.html` (solid rails, ceiling, G=32). Frames are a flat `Float32Array` (`STRIDE` 14 per frame at `HZ` 120). |
 | `src/dice/physics.worker.js` | Runs `planThrow` in a Web Worker so planning never blocks the UI (stage falls back to the main thread). |
-| `src/dice/stage.js` | Three.js renderer: tray, studio environment, modes (`idle`/`hold`/`launch`/`rolling`/`result`), pointer flick, hand shake, playback, camera. **Renders only when something moves** and lowers pixel ratio if frames run slow. |
-| `src/dice/textures.js` | Procedural PBR face maps (pips) and velvet. |
+| `src/dice/stage.js` | Three.js port of the motion study: `new DiceStage(host, {mode:'showcase'|'game'})`. States `idle`/`awaiting`/`rolling`/`settled`. RoomEnvironment, velvet tray with gold rails, clear-coated dice, gold dust, following camera with impact shake. One stage per view: created on entering welcome/play, `dispose()`d on leaving. Degrades once (1× DPR, no shadows/dust) on slow devices. |
 | `src/dice/fallback.js` | CSS 3D dice when WebGL is unavailable. |
 | `src/lib/` | `audio.js` (synthesised Web Audio, no files), `haptics.js` (vibrate plus iOS switch trick), `fx.js` (confetti and fireworks), `qr.js`, `keepsakes.js` (coupon and QR PNGs), `ui.js` (calendar with month/year pickers, `datePicker` field, chips, toast, dates, ICS), `motion.js` (shake-to-roll via DeviceMotion; iOS permission requested from the Register tap), `phone.js` (libphonenumber `max`). |
 | `src/styles/base.css` | Design tokens and shared components (buttons, cards, fields, chips, calendar). |
@@ -54,7 +53,8 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
 ## Non-negotiable invariants (tests enforce most — do not weaken them)
 1. **Results are decided on the server only.** `secureDie_()` uses a crypto-secure UUID with rejection sampling. The browser never chooses or sends dice values or discounts.
 2. **Offer table:** `CONFIG.OFFER_TABLE` = 2:20, 3:22, 4:24, 5:26, 6:28, 7:30, 8:33, 9:36, 10:40, 11:45, 12:50. 50% only for 6+6. The discount applies to **making charges only**. If the table ever changes, update it in all of these places: `Code.gs`, `tests/backend.test.mjs` (`expected`), `SHEETS.terms` in `src/main.js`, `README.md`, and the `offers` list in `buildDashboard_()`.
-3. **One roll per normalised mobile (cc+number) per campaign.** A repeat register or roll returns the **existing** result.
+3. **One roll per normalised mobile (cc+number) per campaign.** `register` with a number that has already rolled fails with `ALREADY_PLAYED` (and never reveals that coupon). A registered-but-not-rolled number may register again. A repeat `roll` on the same session returns the existing result.
+10. **Referrals:** every player has a derived `Referral_Code` (`referralCode_()`); `register` with `ref` links the new player (`Referred_By_*` columns) unless it is their own number or an unknown code. The Dashboard lists top referrers.
 4. **One redemption per coupon**, across ONLINE and STORE. All writes run inside `withLock_()`.
 5. **Scanning never mutates state.** Only `staffVisit` / `staffRedeem` by an authenticated staff member do.
 6. **QR tokens** = `HMAC(secret, 'qr|KIND|coupon')[:32]`, deterministic and never stored. Only the SHA-256 is stored (`*_Token_Hash`). QR codes contain no personal data. The Store QR must keep working after a reschedule (same appointment row; `Reschedule_Count++`).
@@ -71,7 +71,7 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
 - **Dates and times:** IST via `istParts_()`, `todayStr_()`, `nowStr_()`. Do not use `Utilities.formatDate` (not emulated) or the local timezone.
 - **Cell storage:** all writes go through `writeRow_`/`appendRow_` → `cell_()`, which prefixes `'` to values starting with a digit, `+`, `-`, `=` or `@`, so Sheets never converts phones, IDs or dates. Rows are read as strings keyed by header name via `readTable_()`.
 - **Free text:** pass it through `cleanText_()` to neutralise formulas and HTML. Validate choices with `oneOf_` / `cleanList_` against `CONFIG` lists.
-- **Adding a column:** append it to the **end** of the `headers` array in `SHEETS`. A live sheet does **not** auto-migrate, so tell the user to add the same header to the end of row 1 in that tab. In preview, bump the localStorage key in `preview-backend.js` (e.g. `mk_preview_db_v2`).
+- **Adding a column:** append it to the **end** of the `headers` array in `SHEETS`. `ensureHeaders_()` adds missing headers to the end of row 1 of a live sheet automatically. In preview, bump the localStorage key in `preview-backend.js` (now `mk_preview_db_v2`).
 - **New action:** add `actX_` + an entry in `ACTIONS`, add tests in `tests/backend.test.mjs`, then call it via `api('x', {...})`.
 - **Deploying:** after any `Code.gs` edit, the user must paste the new file into Apps Script and run **Deploy → Manage deployments → Edit → New version** (keeps the same URL). Say this in your summary.
 
@@ -80,7 +80,7 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
 - `main.js` has a `DEFAULT_CONFIG` fallback (branches, slots, interests). The server's `config` action overrides it. Keep both in sync with `Code.gs`. The staff category list is hard-coded in `staff.js`.
 - **`[hidden]` is forced to `display:none !important`** in `base.css`. Use the `hidden` attribute for show/hide; do not rely on it being overridden.
 - **Styling:**
-  - Use the tokens in `base.css` (`--obsidian #080808`, `--champagne #D4B477`, `--metallic #C9A45C`, `--royal #D4AF37`, `--ivory #FFF8E7`, `--gold-grad`, `--gold-text`, `--serif` Cormorant Garamond, `--sans` Jost).
+  - Light and dark themes: `html[data-theme]` (set before paint by the inline script in `index.html`, toggled in the top bar, stored as `mk_theme`). Use the semantic tokens in `base.css` (`--bg`, `--surface`, `--surface-2`, `--input-bg`, `--text`, `--heading`, `--muted`, `--faint`, `--accent`, `--line`, `--gold-grad`, `--on-gold`). The 3D stages stay dark in both themes.
   - Reuse `.btn-gold`, `.btn-ghost`, `.btn-quiet`, `.card`, `.field` / `.input`, `.chips`, `.cal`, `.eyebrow`, `.display`, `.gold-text`.
   - Fonts are self-hosted via `@fontsource`; no Google Fonts CDN.
 - **Brand tone:** quiet luxury. No neon, casino styling, emoji clutter, gradient text (only the big offer number), ornaments, numbered labels, animated backgrounds or exclamation-heavy copy. Serif headings, sentence-case buttons, short copy.
@@ -97,19 +97,19 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
 - **Tuning:**
   - Physics: gravity `G`, contact materials, damping and sleep thresholds in `physics.js`.
   - Rejection rules: still moving at the end, cocked (`dot < 0.985`), escaped, a wall hit with `y > 1.25` (looks like an invisible wall), shorter than 60 frames, and landing near the rim on the first 60% of attempts.
-  - After tuning, run `node tests/physics.test.mjs` and keep **150/150 ok** on all three tray shapes (it also checks final faces). Planning runs in a worker; keep the average under ~50 ms on desktop.
+  - After tuning, run `node tests/physics.test.mjs` and keep **150/150 ok** on both tray shapes (it also checks final faces).
 - **Look:**
   - Lighting comes from `studioEnvironment()` (dark room with softboxes, which gives the jewellery-like contrast) plus a key spotlight with shadows.
   - Gold colour: `0xf4d8a2` for the dice, `0xe6c88e` for the frame.
   - Pip maps: `faceTextures()`.
   - Check visuals with `dev/stage.html?mode=result|idle`.
 - **Quality tiers:** `detectQuality()` sets `high` / `low` (texture size, shadow map size, pixel ratio, particle count). Keep low-end Android at 60 fps.
-- **Events:** the stage emits `grab`, `release{velocity}`, `rattle{strength}`, `impact{kind,strength}`, `roll{level}` (continuous rolling-noise level), `throw`, `settled`. `main.js` wires sound and haptics to them.
-- **Throw flow:** `beginHold('auto'|'shake'|'drag')` → `throwTo(values, {velocity})`. Faces are relabelled when the plan arrives with the outer pose compensated (`outer·inner·R⁻¹`) so nothing visibly jumps; then a back-swing/launch tween hands over to physics with continuous velocity.
+- **Events:** the game stage emits `grab`, `swipe{velocity}`, `rattle{strength}`, `impact{kind:'floor'|'wall'|'dice',strength,pan}`, `throw`, `settled`. `main.js` wires sound and haptics to them.
+- **Throw flow:** `beginAwait('auto'|'shake')` → `throw(values, {velocity, power})` (plans in the worker, resolves on settle). The left-most die shows `values[0]`. Faces are relabelled with a cube-symmetry quaternion multiplied on the right of the physics pose; the first 10 frames blend from the hand pose.
 - **Canvas reuse:** one canvas is re-parented between `#stage-welcome` and `#stage-play` via `stage.mount()`.
 
 ## Preview mode
-When `VITE_API_URL` is empty, a ribbon shows and data stays in the browser.
+When `VITE_API_URL` is empty, data stays in the browser (no ribbon is shown to customers).
 - Staff demo logins: `ADMIN01/246810`, `STORE01/135790` (Bandra), `ONLINE01/112233`.
 - Reset with `localStorage.clear()`.
 - Never ship a production build without `VITE_API_URL`.
