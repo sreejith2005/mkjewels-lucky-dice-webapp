@@ -86,7 +86,7 @@ Upload `dist/` to any static host. Recommended: point a subdomain such as `lucky
 | **SMS / WhatsApp OTP** to verify that the mobile number belongs to the player | Not enabled. Numbers are format-validated, but without OTP someone could enter another person's number. Recommended before a wide launch. Plug in MSG91, Twilio Verify or DoubleTick OTP. |
 | **WhatsApp messages** (congratulations, appointment reminder, thank-you) | Templates still to be written and approved in your WhatsApp provider (for example DoubleTick). The Sheet has every field needed. |
 | **CRM / Jewel OS sync** | Data sits in Sheets today. A sync can be added from Apps Script once API access is available. |
-| **Terms & Conditions** | Draft text is in `src/main.js` (`SHEETS.terms`). Please have MK Jewels approve or replace it before going live. |
+| **Terms & Conditions** | Draft text is in `src/main.js` (`SHEETS.terms`) and linked from the footer and result page. The registration form has no terms or marketing checkboxes, so `Terms_Accepted_At` stays blank and `Marketing_Consent` is `NO`. Please have MK Jewels approve the terms before going live. |
 | Store hours and slot capacity | Defaults are hourly slots from 11:00 to 19:00 and 4 bookings per slot per branch. Edit `CONFIG` in `Code.gs`. |
 
 ## 5. Project map

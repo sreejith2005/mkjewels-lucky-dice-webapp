@@ -126,7 +126,7 @@ function actRegister_(p) {
       Object.assign(row, {
         Updated_At: now, Full_Name: v.name, City: v.city, PINCODE: v.pincode, State: v.state || row.State,
         Country: v.country || row.Country, Birthday: v.birthday || row.Birthday, Anniversary: v.anniversary || row.Anniversary,
-        Marketing_Consent: v.marketing ? 'YES' : 'NO'
+        Marketing_Consent: v.marketing ? 'YES' : (row.Marketing_Consent || 'NO')
       });
       writeRow_(sh, row._row, row);
       audit_('CUSTOMER', 'REGISTER_RETURNING', row.Customer_ID, '');
@@ -138,7 +138,7 @@ function actRegister_(p) {
       row = {
         Customer_ID: customerId, Registered_At: now, Updated_At: now, Full_Name: v.name, Country_Code: '+' + v.cc,
         Mobile: v.phone, Normalized_Mobile: v.normalized, City: v.city, PINCODE: v.pincode, State: v.state, Country: v.country,
-        Birthday: v.birthday, Anniversary: v.anniversary, Terms_Accepted_At: now, Marketing_Consent: v.marketing ? 'YES' : 'NO',
+        Birthday: v.birthday, Anniversary: v.anniversary, Terms_Accepted_At: v.terms ? now : '', Marketing_Consent: v.marketing ? 'YES' : 'NO',
         Campaign_ID: CONFIG.CAMPAIGN_ID, Source: v.source || CONFIG.SOURCE
       };
       appendRow_(sh, row);
@@ -450,11 +450,10 @@ function validateRegistration_(p) {
   let birthday = '', anniversary = '';
   if (p.birthday) { birthday = validDate_(p.birthday, 'Please choose a valid birthday.'); if (birthday > today || birthday < '1900-01-01') fail_('Birthday cannot be in the future.', 'DOB'); }
   if (p.anniversary) { anniversary = validDate_(p.anniversary, 'Please choose a valid anniversary.'); if (anniversary > today || anniversary < '1930-01-01') fail_('Anniversary cannot be in the future.', 'ANNIV'); }
-  if (p.terms !== true) fail_('Please accept the Terms & Conditions to continue.', 'TERMS');
   return {
     name: name, cc: cc, phone: phone, normalized: cc + phone, city: city, pincode: pincode,
     state: cleanText_(p.state, 40), country: cleanText_(p.country, 40) || (cc === '91' ? 'India' : ''),
-    birthday: birthday, anniversary: anniversary, marketing: p.marketing === true, source: cleanText_(p.source, 40)
+    birthday: birthday, anniversary: anniversary, terms: p.terms === true, marketing: p.marketing === true, source: cleanText_(p.source, 40)
   };
 }
 

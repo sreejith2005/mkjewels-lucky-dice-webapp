@@ -32,11 +32,11 @@ for (let f = 1; f <= 6; f++) ok(Math.abs(freq[f] - 10000) < 450, `face ${f} freq
 console.log('  frequencies', freq.slice(1).join(' / '));
 
 section('Registration validation');
-const base = { name: '  Priya   Shah ', cc: '91', phone: '98765 43210', city: 'mumbai', pincode: '400050', terms: true, marketing: false };
+const base = { name: '  Priya   Shah ', cc: '91', phone: '98765 43210', city: 'mumbai', pincode: '400050' };
 const bad = [
   [{ phone: '12345' }, 'PHONE'], [{ phone: '5876543210' }, 'PHONE'], [{ phone: '9999999999' }, 'PHONE'],
   [{ name: '12345' }, 'NAME'], [{ name: '' }, 'NAME'], [{ pincode: '04005' }, 'PIN'], [{ pincode: '40005A' }, 'PIN'],
-  [{ city: '' }, 'CITY'], [{ terms: false }, 'TERMS'], [{ birthday: '2099-01-01' }, 'DOB'], [{ birthday: '2025-02-30' }, 'DATE'],
+  [{ city: '' }, 'CITY'], [{ birthday: '2099-01-01' }, 'DOB'], [{ birthday: '2025-02-30' }, 'DATE'],
   [{ anniversary: '2999-01-01' }, 'ANNIV']
 ];
 bad.forEach(([patch, code]) => { const r = call('register', { ...base, ...patch }); ok(!r.ok && r.code === code, `rejects ${JSON.stringify(patch)} (${r.code})`); });
@@ -50,6 +50,7 @@ ok(col(p1, 'Normalized_Mobile') === '919876543210', 'mobile normalized');
 ok(col(p1, 'Full_Name') === 'Priya Shah' && col(p1, 'City') === 'Mumbai', 'name/city cleaned');
 ok(col(p1, 'Birthday') === '1992-04-18' && col(p1, 'Anniversary') === '', 'dates stored, blank anniversary');
 ok(col(p1, 'Marketing_Consent') === 'NO', 'marketing not pre-selected');
+ok(col(p1, 'Terms_Accepted_At') === '', 'no terms checkbox → no acceptance timestamp recorded');
 
 section('Duplicate prevention');
 const reg2 = call('register', { ...base, phone: '+91 98765-43210'.replace('+91', ''), name: 'Priya S Shah' });

@@ -81,8 +81,8 @@ export function faceTextures(value, size, anisotropy) {
 }
 
 /** Black velvet with fine fibres, a soft vignette and the MK Jewels logo pressed into the pile. */
-export function velvetTextures(w, d, logoImg, anisotropy) {
-  const W = 1024, H = Math.round(1024 * d / w);
+export function velvetTextures(w, d, logoImg, anisotropy, size = 1024) {
+  const W = size, H = Math.round(size * d / w);
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d');
   g.fillStyle = '#0b0a09'; g.fillRect(0, 0, W, H);
@@ -116,7 +116,6 @@ export function velvetTextures(w, d, logoImg, anisotropy) {
     if ('letterSpacing' in ctx) ctx.letterSpacing = `${fs * 0.9}px`;
     ctx.fillStyle = mode === 'color' ? 'rgba(212,180,119,0.34)' : 'rgba(0,0,0,0.5)';
     ctx.fillText('MK JEWELS', W / 2 + fs * 0.45, H - fs * 2.2);
-    ctx.fillText('THE GOLDEN ROLL', W / 2 + fs * 0.45, fs * 2.2);
     ctx.restore();
   };
   drawBrand(g, 'color');

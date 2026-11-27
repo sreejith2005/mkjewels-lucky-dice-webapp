@@ -1,28 +1,32 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { planThrow, normalOf, FACE_VALUES, FACE_NORMALS } from './physics.js';
-import { faceTextures, velvetTextures, glowSprite, contactShadow } from './textures.js';
+import { planThrow, launchPose, normalOf, FACE_NORMALS } from './physics.js';
+import { faceTextures, velvetTextures, contactShadow } from './textures.js';
 
-const HOLD_Y = 1.75;
+const HOLD_Y = 1.8;
 const UP = new THREE.Vector3(0, 1, 0);
-const tmpV = new THREE.Vector3(), tmpV2 = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
+const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
+const _q = new THREE.Quaternion();
+const HAND_OFFSETS = [new THREE.Vector3(-0.58, 0, 0.06), new THREE.Vector3(0.58, 0.12, -0.08)];
 const damp = (k, dt) => 1 - Math.exp(-k * dt);
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const smooth = (t) => { t = clamp01(t); return t * t * (3 - 2 * t); };
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
-/** Jeweller's lightbox: black room with warm softboxes → deep, contrasty gold reflections. */
+/** Jeweller's lightbox: dark room with warm softboxes → deep, contrasty gold reflections. */
 function studioEnvironment() {
   const env = new THREE.Scene();
-  env.add(new THREE.Mesh(new THREE.SphereGeometry(30, 32, 16), new THREE.MeshBasicMaterial({ color: 0x050403, side: THREE.BackSide })));
-  const panel = (w, h, color, intensity, pos, look) => {
+  env.add(new THREE.Mesh(new THREE.SphereGeometry(30, 24, 12), new THREE.MeshBasicMaterial({ color: 0x050403, side: THREE.BackSide })));
+  const panel = (w, h, color, intensity, pos) => {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: new THREE.Color(color).multiplyScalar(intensity), side: THREE.DoubleSide }));
-    m.position.set(...pos); m.lookAt(...look); env.add(m);
+    m.position.set(...pos); m.lookAt(0, 0, 0); env.add(m);
   };
-  panel(20, 10, 0xfff1dc, 2.4, [0, 16, 3], [0, 0, 0]);
-  panel(30, 30, 0x2a1d0e, 1.0, [0, 22, 0], [0, 0, 0]);        // warm ceiling wash        // overhead softbox
-  panel(5, 12, 0xffe2b0, 1.6, [-15, 5, 4], [0, 0, 0]);        // left strip
-  panel(5, 12, 0xfff6e6, 1.25, [15, 6, -3], [0, 0, 0]);       // right strip
-  panel(18, 3, 0xffd9a0, 0.9, [0, 3, -16], [0, 0, 0]);        // back rim
-  panel(12, 3, 0xfff3df, 0.55, [0, 6, 15], [0, 0, 0]);        // front softbox (lifts camera-facing tops)       // front kicker
+  panel(20, 10, 0xfff1dc, 2.4, [0, 16, 3]);       // overhead softbox
+  panel(30, 30, 0x2a1d0e, 1.0, [0, 22, 0]);       // warm ceiling wash
+  panel(5, 12, 0xffe2b0, 1.6, [-15, 5, 4]);       // left strip
+  panel(5, 12, 0xfff6e6, 1.25, [15, 6, -3]);      // right strip
+  panel(18, 3, 0xffd9a0, 0.9, [0, 3, -16]);       // back rim
+  panel(12, 3, 0xfff3df, 0.55, [0, 6, 15]);       // front kicker
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshBasicMaterial({ color: 0x1a130a }));
   floor.rotation.x = -Math.PI / 2; floor.position.y = -2; env.add(floor);
   return env;
@@ -41,6 +45,29 @@ export function detectQuality() {
   return (mem <= 3 || cores <= 4 || (small && mem <= 4)) ? 'low' : 'high';
 }
 
+/** Throw planning in a Web Worker (falls back to the main thread). */
+class Planner {
+  constructor() {
+    this.seq = 0; this.pending = new Map();
+    try {
+      this.worker = new Worker(new URL('./physics.worker.js', import.meta.url), { type: 'module' });
+      this.worker.onmessage = (e) => { const p = this.pending.get(e.data.id); if (p) { this.pending.delete(e.data.id); clearTimeout(p.timer); p.resolve(e.data.plan); } };
+      this.worker.onerror = () => { this.worker = null; this.pending.forEach((p) => { clearTimeout(p.timer); p.resolve(this.local(p.args)); }); this.pending.clear(); };
+    } catch (e) { this.worker = null; }
+  }
+  local({ tray, hand, velocity, power }) { return planThrow(tray, hand, velocity, { power }); }
+  plan(tray, hand, velocity, power = 0.6) {
+    const args = { tray: { w: tray.w, d: tray.d }, hand, velocity, power };
+    if (!this.worker) return new Promise((r) => setTimeout(() => r(this.local(args)), 0));
+    return new Promise((resolve) => {
+      const id = ++this.seq;
+      const timer = setTimeout(() => { if (this.pending.delete(id)) resolve(this.local(args)); }, 3000);
+      this.pending.set(id, { resolve, args, timer });
+      this.worker.postMessage({ id, ...args });
+    });
+  }
+}
+
 export class DiceStage {
   constructor({ quality = 'high', reducedMotion = false, logoUrl } = {}) {
     this.quality = quality;
@@ -49,10 +76,12 @@ export class DiceStage {
     const hi = quality === 'high';
 
     const r = this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-    r.setPixelRatio(Math.min(window.devicePixelRatio || 1, hi ? 2 : 1.5));
+    const dpr = window.devicePixelRatio || 1;
+    this.dpr = Math.min(dpr, hi ? 1.75 : 1.25);
+    r.setPixelRatio(this.dpr);
     r.setClearColor(0x000000, 0);
     r.toneMapping = THREE.ACESFilmicToneMapping;
-    r.toneMappingExposure = 1.18;
+    r.toneMappingExposure = 1.16;
     r.shadowMap.enabled = true;
     r.shadowMap.type = THREE.PCFSoftShadowMap;
     this.canvas = r.domElement;
@@ -65,11 +94,10 @@ export class DiceStage {
     scene.environmentIntensity = 1.15;
     pmrem.dispose();
 
-    // ---- lighting: warm key spot (shadows), cool-warm rim, gentle fill
     const key = this.key = new THREE.SpotLight(0xfff0d6, 420, 0, 0.5, 0.85, 2);
     key.castShadow = true;
-    key.shadow.mapSize.set(hi ? 2048 : 1024, hi ? 2048 : 1024);
-    key.shadow.bias = -0.0004; key.shadow.normalBias = 0.025; key.shadow.radius = 5;
+    key.shadow.mapSize.set(hi ? 1024 : 512, hi ? 1024 : 512);
+    key.shadow.bias = -0.0004; key.shadow.normalBias = 0.025;
     key.shadow.camera.near = 4; key.shadow.camera.far = 30;
     scene.add(key, key.target);
     const rim = new THREE.DirectionalLight(0xffd8a0, 1.6); rim.position.set(-6, 3.2, -7); scene.add(rim);
@@ -79,56 +107,55 @@ export class DiceStage {
     // ---- dice
     const texSize = hi ? 512 : 256;
     const aniso = Math.min(8, r.capabilities.getMaxAnisotropy());
-    this.dieMaterials = FACE_VALUES.map((v) => {
+    this.dieMaterials = [3, 4, 1, 6, 2, 5].map((v) => {
       const t = faceTextures(v, texSize, aniso);
-      return new THREE.MeshPhysicalMaterial({
-        color: 0xf4d8a2, map: t.map, normalMap: t.normalMap, normalScale: new THREE.Vector2(1.15, 1.15),
-        roughnessMap: t.rmMap, metalnessMap: t.rmMap, roughness: 1, metalness: 1,
-        clearcoat: hi ? 0.3 : 0, clearcoatRoughness: 0.1, envMapIntensity: 1.0
+      return new THREE.MeshStandardMaterial({
+        color: 0xf4d8a2, map: t.map, normalMap: t.normalMap, normalScale: new THREE.Vector2(1.1, 1.1),
+        roughnessMap: t.rmMap, metalnessMap: t.rmMap, roughness: 1, metalness: 1, envMapIntensity: 1.0
       });
     });
-    const geo = new RoundedBoxGeometry(1, 1, 1, hi ? 6 : 4, 0.12);
+    const geo = new RoundedBoxGeometry(1, 1, 1, hi ? 5 : 3, 0.1);
     const blobTex = contactShadow();
-    this.dice = [0, 1].map((i) => {
+    this.dice = [0, 1].map(() => {
       const outer = new THREE.Group();
       const inner = new THREE.Mesh(geo, this.dieMaterials);
       inner.castShadow = true; inner.receiveShadow = true;
       outer.add(inner); scene.add(outer);
-      const blob = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: blobTex, transparent: true, depthWrite: false, opacity: 0.5 }));
+      const blob = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: blobTex, transparent: true, depthWrite: false, opacity: 0.45 }));
       blob.rotation.x = -Math.PI / 2; blob.renderOrder = 1; scene.add(blob);
-      return { outer, inner, blob, spin: new THREE.Vector3(0.3 + i * 0.1, 0.55 - i * 0.2, 0.15), hold: new THREE.Vector3() };
+      return { outer, inner, blob, spinV: new THREE.Vector3(), tween: null };
     });
 
-    // ---- particles
-    this.particles = null;
-    this.particleCount = hi ? 110 : 45;
-    this.glow = glowSprite();
-
-    // ---- state
+    this.planner = new Planner();
     this.trayDims = null;
-    this.mode = 'showcase';
-    this.time = 0;
-    this.shake = 0;
+    this.velvetCache = {};
+    this.mode = 'idle';
+    this.restValues = [6, 6];
+    this.enabled = true;
+    this.dirty = true;
     this.handTarget = new THREE.Vector3(0, HOLD_Y, 0);
     this.samples = [];
-    this.enabled = true;
     this.logoImg = null;
     this.camState = { pos: new THREE.Vector3(), target: new THREE.Vector3() };
     this.camGoal = { pos: new THREE.Vector3(), target: new THREE.Vector3() };
     this.base = { pos: new THREE.Vector3(), target: new THREE.Vector3() };
     this.raycaster = new THREE.Raycaster();
     this.holdPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -HOLD_Y);
+    this.perf = { frames: 0, time: 0, warm: 0 };
 
     if (logoUrl) {
       const img = new Image();
-      img.onload = () => { this.logoImg = img; (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => this.trayDims && this.buildTray(this.trayDims.aspectClass, true)); };
+      img.onload = () => {
+        this.logoImg = img; this.velvetCache = {};
+        (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => { if (this.trayDims && this.mode !== 'rolling') this.buildTray(this.trayDims.aspectClass, true); });
+      };
       img.src = logoUrl;
     }
 
     this.bindPointer();
     this.clock = new THREE.Clock();
     this.visible = true;
-    document.addEventListener('visibilitychange', () => { this.clock.getDelta(); });
+    document.addEventListener('visibilitychange', () => { this.clock.getDelta(); this.dirty = true; });
     this.loop = this.loop.bind(this);
     this.raf = requestAnimationFrame(this.loop);
   }
@@ -145,7 +172,7 @@ export class DiceStage {
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(host);
     if (this.io) this.io.disconnect();
-    this.io = new IntersectionObserver((e) => { this.visible = e[0].isIntersecting; }, { threshold: 0 });
+    this.io = new IntersectionObserver((e) => { this.visible = e[0].isIntersecting; this.dirty = true; }, { threshold: 0 });
     this.io.observe(host);
     this.resize();
   }
@@ -154,13 +181,17 @@ export class DiceStage {
     if (!this.host) return;
     const w = this.host.clientWidth, h = this.host.clientHeight;
     if (!w || !h) return;
+    if (this.size && this.size.w === w && this.size.h === h) return;
+    this.size = { w, h };
     this.renderer.setSize(w, h, false);
     this.canvas.style.width = '100%'; this.canvas.style.height = '100%';
     this.camera.aspect = w / h;
     const aspect = w / h;
     const cls = aspect < 0.85 ? 'portrait' : aspect < 1.3 ? 'square' : 'wide';
-    if (!this.trayDims || (this.trayDims.aspectClass !== cls && this.mode !== 'rolling' && this.mode !== 'hold')) this.buildTray(cls);
+    const busy = this.mode === 'rolling' || this.mode === 'hold' || this.mode === 'launch';
+    if (!this.trayDims || (this.trayDims.aspectClass !== cls && !busy)) this.buildTray(cls);
     this.fitCamera(true);
+    this.dirty = true;
   }
 
   buildTray(cls, keepDice) {
@@ -170,10 +201,9 @@ export class DiceStage {
     this.trayDims = dims;
     const g = this.tray = new THREE.Group();
     const aniso = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
-    const vt = velvetTextures(dims.w, dims.d, this.logoImg, aniso);
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(dims.w, dims.d), new THREE.MeshPhysicalMaterial({
-      map: vt.map, bumpMap: vt.bump, bumpScale: 1.2, roughness: 0.94, metalness: 0,
-      color: 0x9a9088, sheen: 1, sheenRoughness: 0.5, sheenColor: new THREE.Color(0x3a2a16), envMapIntensity: 0.25
+    const vt = this.velvetCache[cls] ||= velvetTextures(dims.w, dims.d, this.logoImg, aniso, this.quality === 'high' ? 1024 : 640);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(dims.w, dims.d), new THREE.MeshStandardMaterial({
+      map: vt.map, bumpMap: vt.bump, bumpScale: 1.2, roughness: 0.95, metalness: 0, color: 0x9a9088, envMapIntensity: 0.25
     }));
     floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; g.add(floor);
 
@@ -187,40 +217,22 @@ export class DiceStage {
     };
     const outer = rr(new THREE.Shape(), dims.w + t * 2, dims.d + t * 2, 0.6);
     outer.holes.push(rr(new THREE.Path(), dims.w, dims.d, 0.28));
-    const frameGeo = new THREE.ExtrudeGeometry(outer, { depth: 0.46, bevelEnabled: true, bevelThickness: 0.07, bevelSize: 0.07, bevelSegments: 5, curveSegments: 20 });
-    const gold = new THREE.MeshPhysicalMaterial({ color: 0xe6c88e, metalness: 1, roughness: 0.2, clearcoat: 0.25, clearcoatRoughness: 0.15, envMapIntensity: 1.0 });
-    const frame = new THREE.Mesh(frameGeo, gold);
+    const frameGeo = new THREE.ExtrudeGeometry(outer, { depth: 0.46, bevelEnabled: true, bevelThickness: 0.07, bevelSize: 0.07, bevelSegments: 4, curveSegments: 14 });
+    this.frameMat ||= new THREE.MeshStandardMaterial({ color: 0xe6c88e, metalness: 1, roughness: 0.22, envMapIntensity: 1.0 });
+    const frame = new THREE.Mesh(frameGeo, this.frameMat);
     frame.rotation.x = -Math.PI / 2; frame.position.y = -0.02; frame.castShadow = true; frame.receiveShadow = true; g.add(frame);
 
-    const plinth = new THREE.Mesh(new RoundedBoxGeometry(dims.w + t * 2 + 0.3, 0.5, dims.d + t * 2 + 0.3, 4, 0.18),
-      new THREE.MeshPhysicalMaterial({ color: 0x050505, roughness: 0.4, metalness: 0.1, clearcoat: 0.8, clearcoatRoughness: 0.2, envMapIntensity: 0.6 }));
+    this.plinthMat ||= new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.35, metalness: 0.1, envMapIntensity: 0.6 });
+    const plinth = new THREE.Mesh(new RoundedBoxGeometry(dims.w + t * 2 + 0.3, 0.5, dims.d + t * 2 + 0.3, 3, 0.18), this.plinthMat);
     plinth.position.y = -0.27; plinth.receiveShadow = true; g.add(plinth);
     this.scene.add(g);
 
-    // key light & shadow frustum
     this.key.position.set(dims.w * 0.18, 12.5, dims.d * 0.32);
     this.key.target.position.set(0, 0, -0.2);
 
-    this.buildParticles();
-    if (!keepDice) this.placeForMode();
+    if (!keepDice && this.mode !== 'result') this.rest(this.restValues, false);
     this.fitCamera(true);
-  }
-
-  buildParticles() {
-    if (this.particles) { this.scene.remove(this.particles); this.particles.geometry.dispose(); }
-    const n = this.particleCount, { w, d } = this.trayDims;
-    const pos = new Float32Array(n * 3), vel = new Float32Array(n * 3);
-    for (let i = 0; i < n; i++) {
-      pos[i * 3] = (Math.random() - 0.5) * (w + 2); pos[i * 3 + 1] = Math.random() * 4.2 + 0.2; pos[i * 3 + 2] = (Math.random() - 0.5) * (d + 2);
-      vel[i * 3] = (Math.random() - 0.5) * 0.05; vel[i * 3 + 1] = 0.05 + Math.random() * 0.12; vel[i * 3 + 2] = (Math.random() - 0.5) * 0.05;
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    this.pVel = vel;
-    this.particles = new THREE.Points(geo, new THREE.PointsMaterial({
-      size: 0.07, map: this.glow, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, color: 0xffd894, opacity: 0.85, sizeAttenuation: true
-    }));
-    this.scene.add(this.particles);
+    this.dirty = true;
   }
 
   /* ------------------------------------------------------------- camera */
@@ -230,173 +242,358 @@ export class DiceStage {
     const elev = THREE.MathUtils.degToRad(this.trayDims.aspectClass === 'wide' ? 50 : 58);
     const target = new THREE.Vector3(0, 0, 0.15);
     const dir = new THREE.Vector3(0, Math.sin(elev), Math.cos(elev));
-    const hw = w / 2 + 0.6, hd = d / 2 + 0.6;
+    const hw = w / 2 + 0.55, hd = d / 2 + 0.55;
     const pts = [];
     [-1, 1].forEach((sx) => [-1, 1].forEach((sz) => { pts.push(new THREE.Vector3(sx * hw, 0.5, sz * hd), new THREE.Vector3(sx * hw, -0.5, sz * hd)); }));
     cam.updateProjectionMatrix();
     let lo = 4, hi = 80;
-    for (let i = 0; i < 28; i++) {
+    for (let i = 0; i < 26; i++) {
       const mid = (lo + hi) / 2;
       cam.position.copy(target).addScaledVector(dir, mid); cam.lookAt(target); cam.updateMatrixWorld();
-      const fits = pts.every((p) => { const q = p.clone().project(cam); return Math.abs(q.x) < 0.97 && Math.abs(q.y) < 0.93; });
+      const fits = pts.every((p) => { const q = _v.copy(p).project(cam); return Math.abs(q.x) < 0.97 && Math.abs(q.y) < 0.93; });
       if (fits) hi = mid; else lo = mid;
     }
     this.base.pos.copy(target).addScaledVector(dir, hi);
     this.base.target.copy(target);
     this.baseDir = dir; this.baseDist = hi;
-    if (this.mode === 'result') { this.revealCamera(!this.camInit); this.camInit = true; return; }
-    if (snap || !this.camInit) {
-      this.camState.pos.copy(this.base.pos); this.camState.target.copy(this.base.target);
-      this.camGoal.pos.copy(this.base.pos); this.camGoal.target.copy(this.base.target);
-      this.camInit = true;
+    if (this.mode === 'result') { this.revealCamera(this.finalPositions(), snap); return; }
+    if (this.mode !== 'rolling') { this.camGoal.pos.copy(this.base.pos); this.camGoal.target.copy(this.base.target); }
+    if (snap) { this.camState.pos.copy(this.camGoal.pos); this.camState.target.copy(this.camGoal.target); }
+  }
+
+  finalPositions() { return this.dice.map((d) => d.outer.position.clone()); }
+
+  /** Camera that frames both resting dice from a little higher. Writes into camGoal (or `out`). */
+  revealCamera(positions, snap, out = this.camGoal) {
+    const c = new THREE.Vector3();
+    positions.forEach((p) => c.add(p)); c.multiplyScalar(0.5 * 0.55); c.y = 0.35;   // lean toward the dice, keep the tray in view
+    const elev = THREE.MathUtils.degToRad(64);
+    const dir = new THREE.Vector3(0, Math.sin(elev), Math.cos(elev));
+    const pts = [];
+    positions.forEach((p) => { [-1, 1].forEach((sx) => [-1, 1].forEach((sz) => [0, 1.1].forEach((y) => pts.push(new THREE.Vector3(p.x + sx * 1.05, y, p.z + sz * 1.05))))); });
+    const cam = this.camera.clone(); cam.updateProjectionMatrix();
+    let lo = 3, hi = 60;
+    for (let i = 0; i < 22; i++) {
+      const mid = (lo + hi) / 2;
+      cam.position.copy(c).addScaledVector(dir, mid); cam.lookAt(c); cam.updateMatrixWorld();
+      if (pts.every((p) => { const q = _v.copy(p).project(cam); return Math.abs(q.x) < 0.6 && Math.abs(q.y) < 0.6; })) hi = mid; else lo = mid;
     }
+    const dist = THREE.MathUtils.clamp(hi * 1.12, this.baseDist * 0.72, this.baseDist * 1.02);
+    out.target.copy(c);
+    out.pos.copy(c).addScaledVector(dir, dist);
+    if (snap || this.reduced) { this.camState.pos.copy(out.pos); this.camState.target.copy(out.target); }
+    this.dirty = true;
+    return out;
   }
 
-  /* ------------------------------------------------------------- modes */
-  setMode(mode) {
-    this.mode = mode;
-    this.placeForMode(true);
-  }
-
-  restPose(i) {
+  /* ------------------------------------------------------------- resting states */
+  restPos(i) {
     const { d } = this.trayDims;
-    return new THREE.Vector3(i ? 0.82 : -0.82, 0.5, Math.min(d * 0.22, 1.6) + (i ? 0.12 : -0.1));
+    return new THREE.Vector3(i ? 0.85 : -0.85, 0.5, Math.min(d * 0.16, 1.2) + (i ? 0.14 : -0.1));
   }
 
-  placeForMode(animated) {
+  faceUpQuat(value, yaw) {
+    return new THREE.Quaternion().setFromAxisAngle(UP, yaw).multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(...normalOf(value)), UP));
+  }
+
+  /** Dice resting in the tray showing `values`. */
+  rest(values = this.restValues, animated = false) {
+    this.restValues = values;
+    this.mode = 'idle'; this.play = null; this.hold = null; this.launch = null; this.prePlan = null;
     if (!this.trayDims) return;
-    const m = this.mode;
-    if (m === 'showcase') {
-      this.dice.forEach((die, i) => {
-        const goal = new THREE.Vector3(i ? 0.92 : -0.92, 1.45, 0.25);
-        this.tweenDie(die, goal, null, animated ? 0.7 : 0);
-      });
-    } else if (m === 'idle') {
-      this.dice.forEach((die, i) => {
-        const q = new THREE.Quaternion().setFromAxisAngle(UP, (i ? 0.35 : -0.25));
-        die.inner.quaternion.identity();
-        const faceUp = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(...normalOf(i ? 5 : 3)), UP);
-        this.tweenDie(die, this.restPose(i), q.multiply(faceUp), animated ? 0.75 : 0);
-      });
-      this.camGoal.pos.copy(this.base.pos); this.camGoal.target.copy(this.base.target);
-    }
+    this.dice.forEach((die, i) => {
+      // fold any face relabelling into the outer pose so nothing visibly jumps
+      die.outer.quaternion.multiply(die.inner.quaternion); die.inner.quaternion.identity();
+      this.tweenDie(die, this.restPos(i), this.faceUpQuat(values[i], i ? 0.32 : -0.24), animated ? 0.7 : 0);
+    });
+    this.camGoal.pos.copy(this.base.pos); this.camGoal.target.copy(this.base.target);
+    this.dirty = true;
   }
-
-  tweenDie(die, pos, quat, dur) {
-    const from = { p: die.outer.position.clone(), q: die.outer.quaternion.clone() };
-    if (!dur) { die.outer.position.copy(pos); if (quat) die.outer.quaternion.copy(quat); die.tween = null; return; }
-    die.tween = { from, to: { p: pos.clone(), q: quat ? quat.clone() : null }, t: 0, dur };
-  }
+  setMode() { this.rest(this.restValues, true); }
 
   /** Static final display (restored results). */
   showResult(values) {
-    this.mode = 'result';
+    this.mode = 'result'; this.play = null; this.hold = null; this.launch = null;
+    if (!this.trayDims) return;
+    const pos = [new THREE.Vector3(-0.78, 0.5, 0.2), new THREE.Vector3(0.78, 0.5, 0.2)];
     this.dice.forEach((die, i) => {
       die.inner.quaternion.identity();
-      const yaw = new THREE.Quaternion().setFromAxisAngle(UP, (i ? 0.28 : -0.22));
-      const q = yaw.multiply(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(...normalOf(values[i])), UP));
-      this.tweenDie(die, new THREE.Vector3(i ? 0.78 : -0.78, 0.5, 0.2), q, 0);
+      this.tweenDie(die, pos[i], this.faceUpQuat(values[i], i ? 0.28 : -0.22), 0);
     });
-    this.revealCamera(true);
+    this.revealCamera(pos, true);
   }
 
-  revealCamera(snap) {
-    const c = new THREE.Vector3();
-    this.dice.forEach((d) => c.add(d.outer.position)); c.multiplyScalar(0.5); c.y = 0.35;
-    const elev = THREE.MathUtils.degToRad(66);
-    const dir = new THREE.Vector3(0, Math.sin(elev), Math.cos(elev));
-    // fit both dice (with breathing room) inside ~62% of the frame, whatever its aspect ratio
-    const pts = [];
-    this.dice.forEach((d) => { const p = d.outer.position; [-1, 1].forEach((sx) => [-1, 1].forEach((sz) => [0, 1.1].forEach((y) => pts.push(new THREE.Vector3(p.x + sx * 1.05, y, p.z + sz * 1.05))))); });
-    const cam = this.camera.clone(); cam.updateProjectionMatrix();
-    let lo = 3, hi = 60;
-    for (let i = 0; i < 24; i++) {
-      const mid = (lo + hi) / 2;
-      cam.position.copy(c).addScaledVector(dir, mid); cam.lookAt(c); cam.updateMatrixWorld();
-      if (pts.every((p) => { const q = p.clone().project(cam); return Math.abs(q.x) < 0.62 && Math.abs(q.y) < 0.62; })) hi = mid; else lo = mid;
-    }
-    const dist = Math.min(hi, this.baseDist * 1.05);
-    this.camGoal.target.copy(c);
-    this.camGoal.pos.copy(c).addScaledVector(dir, dist);
-    if (snap || this.reduced) { this.camState.pos.copy(this.camGoal.pos); this.camState.target.copy(this.camGoal.target); }
+  tweenDie(die, pos, quat, dur) {
+    if (!dur) { die.outer.position.copy(pos); if (quat) die.outer.quaternion.copy(quat); die.tween = null; this.dirty = true; return; }
+    die.tween = { from: { p: die.outer.position.clone(), q: die.outer.quaternion.clone() }, to: { p: pos.clone(), q: quat ? quat.clone() : null }, t: 0, dur };
   }
 
-  resetCamera() { this.camGoal.pos.copy(this.base.pos); this.camGoal.target.copy(this.base.target); }
-
-  /* ------------------------------------------------------------- hold & throw */
+  /* ------------------------------------------------------------- hold (dice in the hand) */
   clampHand(v) {
     const { w, d } = this.trayDims;
-    v.x = THREE.MathUtils.clamp(v.x, -w / 2 + 1.35, w / 2 - 1.35);
-    v.z = THREE.MathUtils.clamp(v.z, -d / 2 + 0.9, d / 2 - 0.9);
+    v.x = THREE.MathUtils.clamp(v.x, -w / 2 + 1.3, w / 2 - 1.3);
+    v.z = THREE.MathUtils.clamp(v.z, -d / 2 + 0.95, d / 2 - 0.9);
     v.y = HOLD_Y;
     return v;
   }
 
-  /** Lift the dice into the "hand" and shake them (button-triggered roll). */
-  beginHold(shaking = true) {
+  /**
+   * Pick the dice up. kind: 'auto' (button: procedural shake), 'shake' (driven by the phone's
+   * accelerometer via shakeInput) or 'drag' (follows the pointer).
+   */
+  beginHold(kind = 'auto') {
+    if (!this.trayDims) return;
     this.mode = 'hold';
-    this.shaking = shaking;
-    this.releasedAt = null;
-    this.handTarget.set(0, HOLD_Y, this.trayDims.d * 0.18);
-    this.clampHand(this.handTarget);
-    this.dice.forEach((die) => { die.tween = null; die.spinV = new THREE.Vector3((Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9); });
-    this.resetCamera();
-    this.lastRattle = 0;
+    this.hold = { kind, t: 0, offset: new THREE.Vector3(), input: new THREE.Vector3(), prev: null, dir: new THREE.Vector3(), peak: 0, lastKnock: 0, amp: kind === 'auto' ? 1 : 0.6 };
+    if (kind !== 'drag') {
+      this.launchHand = launchPose(this.trayDims);
+      this.handTarget.set((this.launchHand[0].p[0] + this.launchHand[1].p[0]) / 2, HOLD_Y, (this.launchHand[0].p[2] + this.launchHand[1].p[2]) / 2);
+      this.prePlan = this.planner.plan(this.trayDims, this.launchHand, null, 0.6);
+    } else this.prePlan = null;
+    this.dice.forEach((die) => {
+      die.tween = null;
+      die.outer.quaternion.multiply(die.inner.quaternion); die.inner.quaternion.identity();
+      die.spinV.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(5);
+    });
+    this.camGoal.pos.copy(this.base.pos); this.camGoal.target.copy(this.base.target);
   }
 
-  cancelHold() { this.mode = 'idle'; this.placeForMode(true); }
+  /** Phone acceleration (m/s², gravity removed) in device axes while shaking. */
+  shakeInput(ax, ay, az) {
+    if (!this.hold || this.hold.kind !== 'shake') return;
+    this.hold.input.set(ax, az * 0.4, -ay).multiplyScalar(0.032).clampLength(0, 0.55);
+  }
 
-  /** Run a validated physics throw that lands on `values` ([d1, d2]). */
-  throwTo(values, velocity) {
-    const hand = this.dice.map((die) => ({ p: die.outer.position.toArray(), q: die.outer.quaternion.toArray() }));
-    const plan = planThrow(this.trayDims, hand, velocity);
-    return new Promise((resolve) => {
-      if (!plan) { this.showResult(values); resolve(); return; }
-      this.dice.forEach((die, i) => {
-        const a = new THREE.Vector3(...FACE_NORMALS[plan.finals[i].axis]);
-        const n = new THREE.Vector3(...normalOf(values[i]));
-        die.inner.quaternion.setFromUnitVectors(n, a);   // relabel faces (cube symmetry)
-        die.tween = null;
-      });
-      this.play = { plan, t: 0, fired: 0, resolve, done: false };
-      this.mode = 'rolling';
-      this.emit('throw', plan);
+  /** Drag released without a throw yet (waiting for the server): keep the dice rattling gently. */
+  idleShake() {
+    if (!this.hold) return;
+    this.hold.kind = 'auto'; this.hold.amp = 0.55;
+    this.launchHand = launchPose(this.trayDims);
+    this.prePlan = this.planner.plan(this.trayDims, this.launchHand, null, 0.6);
+  }
+
+  cancelHold() { this.rest(this.restValues, true); }
+
+  knock(strength) {
+    this.emit('rattle', { strength });
+    this.dice.forEach((die) => {
+      _v.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(5 + strength * 9);
+      die.spinV.add(_v).clampLength(0, 16);
     });
+  }
+
+  updateHold(dt) {
+    const H = this.hold;
+    H.t += dt;
+    const target = _v.set(0, 0, 0);
+    if (H.kind === 'auto' && !this.reduced) {
+      const f = 3.0, ph = H.t * f * Math.PI * 2, ramp = smooth(H.t / 0.3) * H.amp;
+      target.set(Math.sin(ph) * 0.36, Math.abs(Math.cos(ph)) * 0.14 + 0.04, Math.sin(ph * 0.5) * 0.12).multiplyScalar(ramp);
+    } else if (H.kind === 'shake') target.copy(H.input);
+    H.offset.lerp(target, damp(H.kind === 'shake' ? 16 : 34, dt));
+
+    // hand position → dice; detect direction reversals (the dice knock against each other and the palm)
+    const hand = _v2.copy(this.handTarget).add(H.offset);
+    if (H.prev) {
+      const vel = _v3.copy(hand).sub(H.prev).divideScalar(Math.max(dt, 1e-3));
+      const sp = vel.length();
+      if (sp > 1.4) {
+        vel.divideScalar(sp);
+        if (H.dir.lengthSq() && vel.dot(H.dir) < -0.25 && H.peak > 1.6 && H.t - H.lastKnock > 0.07) { this.knock(clamp01(H.peak / 7)); H.lastKnock = H.t; H.peak = 0; }
+        H.dir.copy(vel); H.peak = Math.max(H.peak, sp);
+      }
+      H.prev.copy(hand);
+    } else H.prev = hand.clone();
+
+    this.dice.forEach((die, i) => {
+      const goal = _v3.copy(hand).add(HAND_OFFSETS[i]);
+      die.outer.position.lerp(goal, damp(i ? 15 : 20, dt));
+      const mag = die.spinV.length();
+      die.spinV.multiplyScalar(Math.exp(-(H.kind === 'drag' ? 2.5 : 1.4) * dt));
+      if (mag > 1e-4) {
+        _q.setFromAxisAngle(_v.copy(die.spinV).divideScalar(mag), mag * dt);
+        die.outer.quaternion.premultiply(_q).normalize();
+      }
+    });
+  }
+
+  /* ------------------------------------------------------------- throw */
+  /**
+   * Throw the dice so they land on `values` ([d1, d2]). With `velocity` ([vx, vz]) the dice are
+   * flung from where they are (pointer flick); otherwise they are thrown from the hand.
+   * Resolves once the dice have settled.
+   */
+  throwTo(values, { velocity = null } = {}) {
+    return new Promise((resolve) => {
+      if (!this.trayDims) { resolve(); return; }
+      if (this.mode !== 'hold') this.beginHold('auto');
+      const L = this.launch = { values, resolve, t: 0, plan: null, flick: null };
+      if (velocity && !this.reduced) {
+        // keep moving with the flick while the trajectory is computed, then hand over to physics
+        const { w, d } = this.trayDims;
+        const lead = 0.16;
+        const from = this.dice.map((die) => die.outer.position.clone());
+        const to = from.map((p) => new THREE.Vector3(
+          THREE.MathUtils.clamp(p.x + velocity[0] * lead, -w / 2 + 0.8, w / 2 - 0.8),
+          Math.max(1.2, p.y - 0.25),
+          THREE.MathUtils.clamp(p.z + velocity[1] * lead, -d / 2 + 0.8, d / 2 - 0.8)));
+        L.flick = { from, to, dur: lead };
+        this.mode = 'launch';
+        this.planner.plan(this.trayDims, to.map((p, i) => ({ p: p.toArray(), q: this.dice[i].outer.quaternion.toArray() })), velocity, 0.6).then((plan) => this.onPlan(plan));
+      } else {
+        (this.prePlan || this.planner.plan(this.trayDims, this.launchHand = launchPose(this.trayDims), null, 0.6)).then((plan) => this.onPlan(plan));
+      }
+    });
+  }
+
+  onPlan(plan) {
+    const L = this.launch;
+    if (!L || L.plan) return;
+    if (!plan) { this.showResult(L.values); this.emit('settled'); setTimeout(L.resolve, 300); this.launch = null; return; }
+    L.plan = plan;
+    // Relabel faces (a cube symmetry R on the inner mesh) so the physically-up face shows the
+    // official value, and pre-multiply the outer pose by R⁻¹ so the dice do not visibly change.
+    this.dice.forEach((die, i) => {
+      const a = new THREE.Vector3(...FACE_NORMALS[plan.finals[i].axis]);
+      const n = new THREE.Vector3(...normalOf(L.values[i]));
+      const R = new THREE.Quaternion().setFromUnitVectors(n, a);
+      die.outer.quaternion.multiply(die.inner.quaternion).multiply(R.clone().invert());
+      die.inner.quaternion.copy(R);
+      die.tween = null;
+    });
+    L.t0 = L.t;
+    L.from = this.dice.map((die) => die.outer.position.clone());
+    L.qFrom = this.dice.map((die) => die.outer.quaternion.clone());
+    L.start = plan.start.map((s) => ({ p: new THREE.Vector3(...s.p), q: new THREE.Quaternion(...s.q), v: new THREE.Vector3(...s.v) }));
+    if (!L.flick) {
+      // gather into a short back-swing, then accelerate into the release so velocity is continuous
+      L.tg = this.reduced ? 0.05 : 0.3; L.tl = this.reduced ? 0.05 : 0.2;
+      L.back = L.start.map((s) => s.p.clone().addScaledVector(s.v, -L.tl / 2));
+      this.mode = 'launch';
+    } else {
+      L.qDur = Math.max(0.08, L.flick.dur - L.t);
+    }
+  }
+
+  updateLaunch(dt) {
+    const L = this.launch;
+    L.t += dt;
+    if (L.flick) {
+      const F = L.flick, k = clamp01(L.t / F.dur);
+      this.dice.forEach((die, i) => die.outer.position.lerpVectors(F.from[i], F.to[i], k));
+      if (!L.plan) {
+        this.dice.forEach((die) => { const m = die.spinV.length(); if (m > 1e-4) { _q.setFromAxisAngle(_v.copy(die.spinV).divideScalar(m), m * dt); die.outer.quaternion.premultiply(_q); } });
+        return;
+      }
+      const w = smooth((L.t - L.t0) / L.qDur);
+      this.dice.forEach((die, i) => die.outer.quaternion.slerpQuaternions(L.qFrom[i], L.start[i].q, w));
+      if (k >= 1 && w >= 1) this.startPlayback();
+      return;
+    }
+    if (!L.plan) { this.updateHold(dt); return; }
+    const t = L.t - L.t0, total = L.tg + L.tl;
+    this.dice.forEach((die, i) => {
+      if (t < L.tg) die.outer.position.lerpVectors(L.from[i], L.back[i], easeInOut(t / L.tg));
+      else { const k = clamp01((t - L.tg) / L.tl); die.outer.position.lerpVectors(L.back[i], L.start[i].p, k * k); }
+      die.outer.quaternion.slerpQuaternions(L.qFrom[i], L.start[i].q, smooth(t / total));
+    });
+    if (t >= total) this.startPlayback();
+  }
+
+  startPlayback() {
+    const L = this.launch, plan = L.plan;
+    this.launch = null; this.hold = null; this.prePlan = null;
+    const { frames, frameCount } = plan;
+    // rolling-noise level per frame: dice moving while in contact with the felt
+    const roll = new Float32Array(frameCount);
+    for (let f = 1; f < frameCount; f++) {
+      let lvl = 0;
+      for (const fr of frames) {
+        const a = fr[f], b = fr[f - 1];
+        if (a[1] > 0.66) continue;
+        const sp = Math.hypot(a[0] - b[0], a[2] - b[2]) * 60;
+        const dq = Math.abs(a[3] - b[3]) + Math.abs(a[4] - b[4]) + Math.abs(a[5] - b[5]) + Math.abs(a[6] - b[6]);
+        lvl += Math.min(1, sp / 7 + dq * 6);
+      }
+      roll[f] = Math.min(1, lvl / 1.4);
+    }
+    const finals = frames.map((fr) => new THREE.Vector3(fr[frameCount - 1][0], fr[frameCount - 1][1], fr[frameCount - 1][2]));
+    const reveal = this.revealCamera(finals, false, { pos: new THREE.Vector3(), target: new THREE.Vector3() });
+    this.camGoal.pos.copy(this.base.pos); this.camGoal.target.copy(this.base.target);
+    this.play = { plan, t: 0, fired: 0, resolve: L.resolve, done: false, roll, reveal, centroid: new THREE.Vector3(0, 0.3, 0), lastRoll: -1 };
+    this.mode = 'rolling';
+    this.perf.warm = 0;
+    this.emit('throw', plan);
+  }
+
+  updatePlayback(dt) {
+    const P = this.play, { frames, events, settleFrame, frameCount } = P.plan;
+    // real-time tumble, then ease into slow motion for the final topple
+    const slowStart = settleFrame - 54;
+    const speed = this.reduced ? 1.6 : 1 - 0.52 * smooth((P.t - slowStart) / 34);
+    P.t = Math.min(frameCount - 1, P.t + dt * 60 * speed);
+    const f0 = Math.floor(P.t), a = P.t - f0, f1 = Math.min(frameCount - 1, f0 + 1);
+    const centroid = _v2.set(0, 0, 0);
+    this.dice.forEach((die, i) => {
+      const A = frames[i][f0], B = frames[i][f1];
+      die.outer.position.set(A[0] + (B[0] - A[0]) * a, A[1] + (B[1] - A[1]) * a, A[2] + (B[2] - A[2]) * a);
+      die.outer.quaternion.set(A[3], A[4], A[5], A[6]).slerp(_q.set(B[3], B[4], B[5], B[6]), a);
+      centroid.add(die.outer.position);
+    });
+    centroid.multiplyScalar(0.5);
+    while (P.fired < events.length && events[P.fired].frame <= P.t) this.emit('impact', events[P.fired++]);
+    const lvl = P.roll[f0] + (P.roll[f1] - P.roll[f0]) * a;
+    if (Math.abs(lvl - P.lastRoll) > 0.02) { P.lastRoll = lvl; this.emit('roll', { level: lvl * Math.min(1, speed * 1.1) }); }
+
+    // camera: a calm, low-passed follow, then a slow push-in onto the final resting place
+    P.centroid.lerp(centroid, damp(2.2, dt));
+    const w = smooth((P.t - (settleFrame - 80)) / 80);
+    _v.copy(this.base.target).lerp(_v3.copy(P.centroid).setY(0.25), 0.22);
+    this.camGoal.target.copy(_v).lerp(P.reveal.target, w);
+    _v.addScaledVector(this.baseDir, this.baseDist);
+    this.camGoal.pos.copy(_v).lerp(P.reveal.pos, w);
+
+    if (P.t >= frameCount - 1 && !P.done) {
+      P.done = true;
+      this.mode = 'result';
+      this.camGoal.pos.copy(P.reveal.pos); this.camGoal.target.copy(P.reveal.target);
+      this.emit('roll', { level: 0 });
+      this.emit('settled');
+      setTimeout(P.resolve, this.reduced ? 100 : 650);
+    }
   }
 
   /* ------------------------------------------------------------- pointer */
   bindPointer() {
     const c = this.canvas;
-    const ndc = (e) => { const r = c.getBoundingClientRect(); return new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1); };
-    const worldAt = (e) => { this.raycaster.setFromCamera(ndc(e), this.camera); const v = new THREE.Vector3(); return this.raycaster.ray.intersectPlane(this.holdPlane, v) ? this.clampHand(v) : null; };
+    const ndc = new THREE.Vector2();
+    const worldAt = (e) => {
+      const r = c.getBoundingClientRect();
+      ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      this.raycaster.setFromCamera(ndc, this.camera);
+      const v = new THREE.Vector3();
+      return this.raycaster.ray.intersectPlane(this.holdPlane, v) ? this.clampHand(v) : null;
+    };
     c.addEventListener('pointerdown', (e) => {
-      if (!this.enabled) return;
-      if (this.mode === 'showcase') { this.drag = { x: e.clientX, y: e.clientY }; c.setPointerCapture(e.pointerId); return; }
-      if (this.mode !== 'idle') return;
+      if (!this.enabled || this.mode !== 'idle' || !this.trayDims) return;
       const p = worldAt(e); if (!p) return;
       c.setPointerCapture(e.pointerId);
-      this.beginHold(false);
+      this.beginHold('drag');
       this.handTarget.copy(p);
-      this.grab = { t0: performance.now(), start: p.clone(), moved: 0 };
+      this.grab = { moved: 0 };
       this.samples = [{ t: performance.now(), p: p.clone() }];
       this.emit('grab');
     });
     c.addEventListener('pointermove', (e) => {
-      if (this.drag && this.mode === 'showcase') {
-        const dx = e.clientX - this.drag.x, dy = e.clientY - this.drag.y; this.drag = { x: e.clientX, y: e.clientY };
-        this.dice.forEach((d) => { d.spin.y += dx * 0.012; d.spin.x += dy * 0.012; });
-        return;
-      }
       if (!this.grab || this.mode !== 'hold') return;
       const p = worldAt(e); if (!p) return;
       this.grab.moved += p.distanceTo(this.handTarget);
       this.handTarget.copy(p);
       const now = performance.now();
-      this.samples.push({ t: now, p: p.clone() });
-      while (this.samples.length > 2 && now - this.samples[0].t > 110) this.samples.shift();
+      this.samples.push({ t: now, p });
+      while (this.samples.length > 2 && now - this.samples[0].t > 100) this.samples.shift();
     });
-    const up = (e) => {
-      if (this.drag) { this.drag = null; return; }
+    const up = () => {
       if (!this.grab) return;
       const g = this.grab; this.grab = null;
       const s = this.samples, now = performance.now();
@@ -406,29 +603,47 @@ export class DiceStage {
         const vx = (b.p.x - a.p.x) / dt, vz = (b.p.z - a.p.z) / dt;
         if (Math.hypot(vx, vz) > 2.5 && now - b.t < 120) vel = [vx * 0.9, vz * 0.9];
       }
-      this.shaking = !vel;
-      this.releasedAt = now;
       this.emit('release', { velocity: vel });
     };
     c.addEventListener('pointerup', up);
     c.addEventListener('pointercancel', up);
   }
 
-  /* ------------------------------------------------------------- frame loop */
+  /* ------------------------------------------------------------- frame loop (renders only when something changes) */
   loop() {
     this.raf = requestAnimationFrame(this.loop);
     const dt = Math.min(this.clock.getDelta(), 1 / 20);
-    if (!this.visible || document.hidden || !this.trayDims) return;
-    this.time += dt;
-    this.update(dt);
-    this.renderer.render(this.scene, this.camera);
+    if (!this.visible || document.hidden || !this.trayDims || !this.host) return;
+    const active = this.update(dt);
+    if (active || this.dirty) {
+      this.renderer.render(this.scene, this.camera);
+      this.dirty = false;
+      if (active) this.adapt(dt);
+    }
+  }
+
+  /** Lower the resolution once if the device cannot keep up during animation. */
+  adapt(dt) {
+    const P = this.perf;
+    if (++P.warm < 12) return;
+    P.frames++; P.time += dt;
+    if (P.frames >= 40) {
+      const avg = P.time / P.frames;
+      P.frames = 0; P.time = 0;
+      if (avg > 0.024 && this.dpr > 1) {
+        this.dpr = Math.max(1, this.dpr - 0.25);
+        this.renderer.setPixelRatio(this.dpr);
+        if (this.size) this.renderer.setSize(this.size.w, this.size.h, false);
+        if (this.dpr <= 1.25) this.key.shadow.mapSize.set(512, 512);
+      }
+    }
   }
 
   update(dt) {
-    const t = this.time;
-    // tweens
+    let active = false;
     this.dice.forEach((die) => {
       if (!die.tween) return;
+      active = true;
       const tw = die.tween; tw.t = Math.min(1, tw.t + dt / tw.dur);
       const k = easeInOut(tw.t);
       die.outer.position.lerpVectors(tw.from.p, tw.to.p, k);
@@ -436,100 +651,32 @@ export class DiceStage {
       if (tw.t >= 1) die.tween = null;
     });
 
-    if (this.mode === 'showcase') {
-      this.dice.forEach((die, i) => {
-        if (die.tween) return;
-        die.spin.lerp(tmpV.set(0.32 + i * 0.12, 0.55 - i * 0.18, 0.2), damp(1.2, dt));
-        tmpQ.setFromEuler(new THREE.Euler(die.spin.x * dt, die.spin.y * dt, die.spin.z * dt));
-        die.outer.quaternion.premultiply(tmpQ);
-        die.outer.position.y = 1.45 + Math.sin(t * 1.3 + i * 1.7) * 0.12;
+    if (this.mode === 'hold' && this.hold) { this.updateHold(dt); active = true; }
+    else if (this.mode === 'launch' && this.launch) { this.updateLaunch(dt); active = true; }
+    else if (this.mode === 'rolling' && this.play) { this.updatePlayback(dt); active = true; }
+
+    if (active) {
+      this.dice.forEach((die) => {
+        const p = die.outer.position;
+        die.blob.position.set(p.x, 0.004, p.z);
+        const s = 1.5 + Math.max(0, p.y - 0.5) * 0.45; die.blob.scale.set(s, s, s);
+        die.blob.material.opacity = THREE.MathUtils.clamp(0.5 - (p.y - 0.5) * 0.22, 0.06, 0.5);
       });
-    } else if (this.mode === 'hold') {
-      const shakeAmt = this.shaking ? 1 : 0.35;
-      let fastest = 0;
-      this.dice.forEach((die, i) => {
-        const off = tmpV2.set(i ? 0.9 : -0.9, 0, i ? 0.08 : -0.08);
-        const j = this.reduced ? 0 : shakeAmt;
-        off.x += Math.sin(t * 31 + i * 2) * 0.09 * j; off.y += Math.sin(t * 27 + i) * 0.12 * j; off.z += Math.cos(t * 29 + i * 3) * 0.08 * j;
-        const goal = tmpV.copy(this.handTarget).add(off);
-        const before = die.outer.position.clone();
-        die.outer.position.lerp(goal, damp(16, dt));
-        fastest = Math.max(fastest, before.distanceTo(die.outer.position) / dt);
-        die.spinV.lerp(tmpV.set(Math.sin(t * 7 + i) * 10, Math.cos(t * 6 + i * 2) * 12, Math.sin(t * 5 + i * 4) * 9).multiplyScalar(0.4 + shakeAmt * 0.6), damp(3, dt));
-        tmpQ.setFromEuler(new THREE.Euler(die.spinV.x * dt, die.spinV.y * dt, die.spinV.z * dt));
-        die.outer.quaternion.premultiply(tmpQ);
-      });
-      const interval = this.shaking ? 0.13 : 0.22;
-      if ((this.shaking || fastest > 4) && t - this.lastRattle > interval * (0.7 + Math.random() * 0.6)) { this.lastRattle = t; this.emit('rattle', { strength: this.shaking ? 0.7 : 0.4 }); }
-    } else if (this.mode === 'rolling' && this.play) {
-      this.updatePlayback(dt);
+    } else if (this.dirty) {
+      this.dice.forEach((die) => { const p = die.outer.position; die.blob.position.set(p.x, 0.004, p.z); die.blob.scale.setScalar(1.5); die.blob.material.opacity = 0.5; });
     }
 
-    // contact shadows
-    this.dice.forEach((die) => {
-      const p = die.outer.position;
-      die.blob.position.set(p.x, 0.004, p.z);
-      const s = 1.55 + Math.max(0, p.y - 0.5) * 0.45; die.blob.scale.set(s, s, s);
-      die.blob.material.opacity = THREE.MathUtils.clamp(0.6 - (p.y - 0.5) * 0.25, 0.08, 0.6);
-    });
-
-    // particles
-    if (this.particles && !this.reduced) {
-      const a = this.particles.geometry.attributes.position, v = this.pVel, { w, d } = this.trayDims;
-      for (let i = 0; i < a.count; i++) {
-        a.array[i * 3] += v[i * 3] * dt + Math.sin(t * 0.6 + i) * 0.0012;
-        a.array[i * 3 + 1] += v[i * 3 + 1] * dt;
-        a.array[i * 3 + 2] += v[i * 3 + 2] * dt;
-        if (a.array[i * 3 + 1] > 4.6) { a.array[i * 3 + 1] = 0.15; a.array[i * 3] = (Math.random() - 0.5) * (w + 2); a.array[i * 3 + 2] = (Math.random() - 0.5) * (d + 2); }
-      }
-      a.needsUpdate = true;
-      this.particles.material.opacity = 0.6 + Math.sin(t * 2.1) * 0.15;
+    // camera (critically damped follow toward its goal)
+    const cs = this.camState, cg = this.camGoal;
+    const moving = cs.pos.distanceToSquared(cg.pos) > 1e-6 || cs.target.distanceToSquared(cg.target) > 1e-6;
+    if (moving) {
+      const k = damp(this.mode === 'result' ? 2.4 : 3.2, dt);
+      cs.pos.lerp(cg.pos, k); cs.target.lerp(cg.target, k);
+      active = true;
     }
-
-    // camera
-    const k = damp(this.mode === 'result' ? 2.2 : 3, dt);
-    this.camState.pos.lerp(this.camGoal.pos, k);
-    this.camState.target.lerp(this.camGoal.target, k);
-    this.camera.position.copy(this.camState.pos);
-    if (this.shake > 0.0005 && !this.reduced) {
-      this.camera.position.x += (Math.random() - 0.5) * this.shake;
-      this.camera.position.y += (Math.random() - 0.5) * this.shake;
-      this.shake *= Math.exp(-dt * 12);
-    }
-    this.camera.lookAt(this.camState.target);
-  }
-
-  updatePlayback(dt) {
-    const P = this.play, { frames, events, settleFrame, frameCount } = P.plan;
-    const slowStart = settleFrame - 36;
-    let speed = 1;
-    if (!this.reduced && P.t > slowStart) speed = 1 - 0.42 * Math.min(1, (P.t - slowStart) / 18);
-    P.t = Math.min(frameCount - 1, P.t + dt * 60 * speed);
-    const f0 = Math.floor(P.t), a = P.t - f0, f1 = Math.min(frameCount - 1, f0 + 1);
-    const centroid = tmpV2.set(0, 0, 0);
-    this.dice.forEach((die, i) => {
-      const A = frames[i][f0], B = frames[i][f1];
-      die.outer.position.set(A[0] + (B[0] - A[0]) * a, A[1] + (B[1] - A[1]) * a, A[2] + (B[2] - A[2]) * a);
-      die.outer.quaternion.set(A[3], A[4], A[5], A[6]).slerp(tmpQ.set(B[3], B[4], B[5], B[6]), a);
-      centroid.add(die.outer.position);
-    });
-    centroid.multiplyScalar(0.5);
-    while (P.fired < events.length && events[P.fired].frame <= P.t) {
-      const ev = events[P.fired++];
-      this.shake = Math.min(0.07, this.shake + ev.strength * 0.0035);
-      this.emit('impact', ev);
-    }
-    // cinematic follow: drift toward the dice and push in slightly
-    const follow = tmpV.copy(centroid).multiplyScalar(0.45); follow.y = 0.2;
-    this.camGoal.target.copy(this.base.target).lerp(follow, 0.6);
-    this.camGoal.pos.copy(this.camGoal.target).addScaledVector(this.baseDir, this.baseDist * 0.9);
-    if (P.t >= frameCount - 1 && !P.done) {
-      P.done = true;
-      this.mode = 'result';
-      this.revealCamera(false);
-      this.emit('settled');
-      setTimeout(P.resolve, this.reduced ? 100 : 650);
-    }
+    this.camera.position.copy(cs.pos);
+    this.camera.lookAt(cs.target);
+    return active;
   }
 
   setEnabled(v) { this.enabled = v; }

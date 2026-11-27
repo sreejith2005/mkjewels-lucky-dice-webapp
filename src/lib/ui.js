@@ -31,42 +31,107 @@ export async function copyText(text) {
   }
 }
 
-/** Elegant month calendar. opts: { min, max, closedWeekdays, value, onChange } */
+/**
+ * Month calendar. opts: { min, max, closedWeekdays, value, onChange, pickers, startView }
+ * pickers=true shows month and year dropdowns (for birthdays and anniversaries far in the past).
+ */
 export function calendar(host, opts) {
   const state = { value: opts.value || null };
-  const start = state.value || opts.min;
+  const start = state.value || opts.startView || opts.min;
   let [vy, vm] = start.split('-').map(Number);
+  const minY = Number(opts.min.slice(0, 4)), maxY = Number(opts.max.slice(0, 4));
+  const clampView = () => {
+    const ym = `${vy}-${String(vm).padStart(2, '0')}`;
+    if (ym < opts.min.slice(0, 7)) [vy, vm] = opts.min.split('-').map(Number);
+    if (ym > opts.max.slice(0, 7)) [vy, vm] = opts.max.split('-').map(Number);
+  };
   const render = () => {
+    clampView();
     const first = new Date(Date.UTC(vy, vm - 1, 1));
     const offset = first.getUTCDay();
     const days = new Date(Date.UTC(vy, vm, 0)).getUTCDate();
     const minYm = opts.min.slice(0, 7), maxYm = opts.max.slice(0, 7), ym = `${vy}-${String(vm).padStart(2, '0')}`;
+    const today = istToday();
     let cells = '';
     for (let i = 0; i < offset; i++) cells += '<span class="cal-cell empty"></span>';
     for (let d = 1; d <= days; d++) {
       const ymd = `${ym}-${String(d).padStart(2, '0')}`;
       const wd = (offset + d - 1) % 7;
       const disabled = ymd < opts.min || ymd > opts.max || (opts.closedWeekdays || []).includes(wd);
-      const cls = ['cal-cell', disabled ? 'off' : '', ymd === state.value ? 'sel' : '', ymd === opts.min ? 'today' : ''].join(' ');
+      const cls = ['cal-cell', disabled ? 'off' : '', ymd === state.value ? 'sel' : '', ymd === today ? 'today' : ''].join(' ');
       cells += `<button type="button" class="${cls}" data-d="${ymd}" ${disabled ? 'disabled aria-disabled="true"' : ''} aria-pressed="${ymd === state.value}" aria-label="${prettyDate(ymd, true)}">${d}</button>`;
     }
+    const title = opts.pickers
+      ? `<div class="cal-pick">
+          <select class="cal-sel" data-pick="m" aria-label="Month">${MONTHS.map((m, i) => { const v = `${vy}-${String(i + 1).padStart(2, '0')}`; return `<option value="${i + 1}" ${i + 1 === vm ? 'selected' : ''} ${v < minYm || v > maxYm ? 'disabled' : ''}>${m}</option>`; }).join('')}</select>
+          <select class="cal-sel" data-pick="y" aria-label="Year">${Array.from({ length: maxY - minY + 1 }, (_, i) => maxY - i).map((y) => `<option ${y === vy ? 'selected' : ''}>${y}</option>`).join('')}</select>
+        </div>`
+      : `<div class="cal-title">${MONTHS[vm - 1]} <span>${vy}</span></div>`;
     host.innerHTML = `
       <div class="cal-head">
-        <button type="button" class="cal-nav" data-nav="-1" ${ym <= minYm ? 'disabled' : ''} aria-label="Previous month">‹</button>
-        <div class="cal-title">${MONTHS[vm - 1]} <span>${vy}</span></div>
-        <button type="button" class="cal-nav" data-nav="1" ${ym >= maxYm ? 'disabled' : ''} aria-label="Next month">›</button>
+        <button type="button" class="cal-nav" data-nav="-1" ${ym <= minYm ? 'disabled' : ''} aria-label="Previous month"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        ${title}
+        <button type="button" class="cal-nav" data-nav="1" ${ym >= maxYm ? 'disabled' : ''} aria-label="Next month"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       </div>
-      <div class="cal-grid cal-dow">${DAYS.map((d) => `<span>${d[0]}</span>`).join('')}</div>
+      <div class="cal-grid cal-dow">${DAYS.map((d) => `<span>${d.slice(0, 2)}</span>`).join('')}</div>
       <div class="cal-grid">${cells}</div>`;
   };
+  host.classList.add('cal');
   host.addEventListener('click', (e) => {
     const nav = e.target.closest('[data-nav]');
     if (nav && !nav.disabled) { vm += Number(nav.dataset.nav); if (vm < 1) { vm = 12; vy--; } if (vm > 12) { vm = 1; vy++; } render(); return; }
     const cell = e.target.closest('[data-d]');
     if (cell && !cell.disabled) { state.value = cell.dataset.d; render(); opts.onChange && opts.onChange(state.value); }
   });
+  host.addEventListener('change', (e) => {
+    const sel = e.target.closest('[data-pick]'); if (!sel) return;
+    if (sel.dataset.pick === 'm') vm = Number(sel.value); else vy = Number(sel.value);
+    render();
+  });
   render();
   return { get value() { return state.value; }, set(v) { state.value = v; if (v) { [vy, vm] = v.split('-').map(Number); } render(); } };
+}
+
+/**
+ * Date field that opens a calendar. opts: { min, max, value, startView, placeholder, label, onChange }
+ */
+export function datePicker(host, opts) {
+  let value = opts.value || '';
+  host.classList.add('date-field');
+  host.innerHTML = `
+    <button type="button" class="date-btn input" aria-haspopup="dialog" aria-expanded="false">
+      <svg class="icon" aria-hidden="true"><use href="#i-cal"/></svg><span class="date-val"></span>
+    </button>
+    <button type="button" class="date-clear" aria-label="Clear ${esc(opts.label || 'date')}" hidden><svg viewBox="0 0 24 24" width="16" height="16"><path d="M7 7l10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+    <div class="date-pop" role="dialog" aria-label="${esc(opts.label || 'Choose a date')}" hidden><div class="date-cal"></div></div>`;
+  const btn = host.querySelector('.date-btn'), clr = host.querySelector('.date-clear'), pop = host.querySelector('.date-pop'), val = host.querySelector('.date-val');
+  const paint = () => {
+    val.textContent = value ? longDate(value) : (opts.placeholder || 'Select date');
+    btn.classList.toggle('empty', !value); clr.hidden = !value;
+  };
+  let cal = null;
+  const open = () => {
+    if (!cal) cal = calendar(host.querySelector('.date-cal'), { min: opts.min, max: opts.max, value: value || null, startView: opts.startView, pickers: true, onChange: (v) => { value = v; paint(); close(); opts.onChange && opts.onChange(v); } });
+    else cal.set(value || null);
+    pop.hidden = false; btn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('pointerdown', outside, true); document.addEventListener('keydown', onKey);
+    requestAnimationFrame(() => { const r = pop.getBoundingClientRect(); if (r.bottom > innerHeight) window.scrollBy({ top: r.bottom - innerHeight + 16, behavior: 'smooth' }); });
+  };
+  const close = () => {
+    pop.hidden = true; btn.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('pointerdown', outside, true); document.removeEventListener('keydown', onKey);
+  };
+  const outside = (e) => { if (!host.contains(e.target)) close(); };
+  const onKey = (e) => { if (e.key === 'Escape') { close(); btn.focus(); } };
+  btn.addEventListener('click', () => (pop.hidden ? open() : close()));
+  clr.addEventListener('click', () => { value = ''; paint(); close(); opts.onChange && opts.onChange(''); });
+  paint();
+  return { get value() { return value; }, clear() { value = ''; paint(); }, focus() { btn.focus(); } };
+}
+
+export function longDate(ymd) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return `${d} ${MONTHS[m - 1]} ${y}`;
 }
 
 /** Chip group. multi=true for multi-select. */

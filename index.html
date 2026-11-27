@@ -3,15 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#080808" />
+  <meta name="theme-color" content="#0b0a09" />
   <title>MK Jewels – Lucky Double Dice</title>
-  <meta name="description" content="Roll two golden dice and win 20% to 50% off making charges at MK Jewels. Every roll wins." />
+  <meta name="description" content="Roll two dice and win 20% to 50% off making charges at MK Jewels. Every roll wins." />
   <meta property="og:title" content="MK Jewels – Lucky Double Dice" />
-  <meta property="og:description" content="Two golden dice. One extraordinary reward. Every roll wins up to 50% off making charges." />
+  <meta property="og:description" content="Roll two dice. Win 20% to 50% off making charges at MK Jewels." />
   <meta property="og:image" content="/brand/icon-192.png" />
   <link rel="icon" type="image/png" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/brand/icon-192.png" />
-  <link rel="preload" href="/brand/mk-logo.png" as="image" />
 </head>
 <body>
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -31,124 +30,100 @@
       <symbol id="i-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
       <symbol id="i-sound" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z"/><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M15.5 9a4.5 4.5 0 0 1 0 6M18 6.5a8 8 0 0 1 0 11"/></symbol>
       <symbol id="i-mute" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M4 9.5h3.5L12 5v14l-4.5-4.5H4z"/><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="m16 9.5 5 5m0-5-5 5"/></symbol>
+      <symbol id="i-chev" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></symbol>
+      <symbol id="i-qr" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4z"/><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M14 14h2v2h-2zM18 14h2M14 18v2M18 18h2v2"/></symbol>
+      <symbol id="i-shake" viewBox="0 0 24 24"><rect x="8" y="3.5" width="8" height="17" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" d="M4.5 8.5c-1 2-1 5 0 7M19.5 8.5c1 2 1 5 0 7"/></symbol>
       <symbol id="i-spark" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2c.6 4.8 2.2 6.6 7 7.2v.6c-4.8.6-6.4 2.4-7 7.2h-.1c-.6-4.8-2.2-6.6-7-7.2v-.6c4.8-.6 6.4-2.4 7-7.2Z"/></symbol>
     </defs>
   </svg>
 
-  <div class="atmosphere" aria-hidden="true"></div>
-  <div class="grain" aria-hidden="true"></div>
-
-  <!-- Loader -->
-  <div id="loader" role="status" aria-live="polite">
-    <div class="ld-ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="54" class="ld-track"/><circle cx="60" cy="60" r="54" class="ld-arc" pathLength="100"/></svg>
-      <img src="/brand/mk-logo.png" alt="MK Jewels" class="ld-logo" /></div>
+  <div id="loader" role="status" aria-label="Loading">
+    <img src="/brand/mk-logo.png" alt="MK Jewels" class="ld-logo" />
     <div class="ld-bar"><i></i></div>
-    <p class="ld-msg">Preparing your golden experience…</p>
   </div>
 
   <header class="topbar">
     <a class="wordmark" href="./" aria-label="MK Jewels home">MK JEWELS</a>
-    <div class="topbar-r">
-      <span class="est">EST. 1999</span>
-      <button class="icon-btn sound-toggle" type="button" aria-label="Sound on" aria-pressed="true"><svg class="icon"><use href="#i-sound"/></svg></button>
-    </div>
+    <button class="icon-btn sound-toggle" type="button" aria-label="Sound on" aria-pressed="true"><svg class="icon"><use href="#i-sound"/></svg></button>
   </header>
 
-  <div id="preview-ribbon" hidden>Preview mode · data is kept on this device only · <a href="./staff.html">Staff portal</a></div>
+  <div id="preview-ribbon" hidden>Preview mode · data stays on this device · <a href="./staff.html">Staff portal</a></div>
 
   <main id="app">
-    <!-- ============== WELCOME ============== -->
+    <!-- WELCOME -->
     <section class="view" id="v-welcome" data-view="welcome" hidden>
-      <div class="welcome-grid">
+      <div class="welcome">
         <div class="welcome-copy">
           <img class="brand-logo" src="/brand/mk-logo.png" alt="MK Jewels — 1999 — Mumbai | Ahmedabad" width="389" height="659" />
-          <p class="eyebrow reveal" style="--d:1">The art of golden fortune</p>
-          <h1 class="display hero-title reveal" style="--d:2"><span class="gold-text">Your Golden Moment</span><br /><em class="gold-text">Awaits.</em></h1>
-          <p class="lede reveal" style="--d:3">Two golden dice. One extraordinary reward.</p>
-          <p class="promo reveal" style="--d:4">Win a guaranteed <strong>20% to 50% OFF</strong> on making charges</p>
+          <p class="eyebrow">Lucky Double Dice</p>
+          <h1 class="display hero-title">Roll two dice.<br /><em>Win up to 50% off</em> making charges.</h1>
+          <p class="lede">Every roll wins at least 20%. A double six wins 50%.</p>
+          <button class="btn btn-gold btn-lg cta" id="btn-unlock" type="button">Play now</button>
+          <p class="hint">Takes a minute · One roll per mobile number</p>
         </div>
         <div class="welcome-stage">
-          <div class="stage-frame"><div class="stage-host" id="stage-welcome"></div><p class="stage-caption">Drag to admire · Every roll wins</p></div>
-          <button class="btn btn-gold btn-lg cta" id="btn-unlock" type="button"><span class="orn">✦</span>Unlock my golden reward<span class="orn">✦</span></button>
-          <ul class="perks">
-            <li><span class="perk-n">I</span><b>Every roll wins</b></li>
-            <li><span class="perk-n">II</span><b>Guaranteed minimum 20% off</b></li>
-            <li><span class="perk-n">III</span><b>Double six jackpot – 50% off</b></li>
-            <li><span class="perk-n">IV</span><b>Exclusive MK Jewels reward</b></li>
-          </ul>
+          <div class="stage-frame"><div class="stage-host" id="stage-welcome"></div></div>
         </div>
       </div>
     </section>
 
-    <!-- ============== REGISTER ============== -->
+    <!-- REGISTER -->
     <section class="view" id="v-register" data-view="register" hidden>
       <div class="narrow">
         <button class="btn btn-quiet back" type="button" data-go="welcome"><svg class="icon"><use href="#i-back"/></svg>Back</button>
-        <p class="eyebrow">Step 1 of 2 · Your details</p>
-        <h2 class="display section-title"><span class="gold-text">Unlock your</span> <em class="gold-text">golden reward</em></h2>
-        <p class="lede small">A few details so we can reserve your reward. It takes under a minute.</p>
+        <h2 class="display section-title">Your details</h2>
+        <p class="lede small">We need these to issue your coupon.</p>
         <form class="card form" id="reg-form" novalidate autocomplete="on">
           <div class="field" data-f="name">
-            <label for="f-name"><span class="num">01</span>Full name</label>
-            <input class="input" id="f-name" name="name" autocomplete="name" placeholder="Enter your full name" maxlength="60" required />
+            <label for="f-name">Full name</label>
+            <input class="input" id="f-name" name="name" autocomplete="name" placeholder="As you'd like it on your coupon" maxlength="60" required />
             <p class="err"></p>
           </div>
           <div class="field" data-f="phone">
-            <label for="f-phone"><span class="num">02</span>Mobile number</label>
+            <label for="f-phone">Mobile number</label>
             <div class="phone-wrap">
               <label class="cc" for="f-cc"><span id="cc-label">+91</span><svg viewBox="0 0 12 8" width="10" height="7"><path d="M1 1l5 5 5-5" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
                 <select id="f-cc" aria-label="Country code"></select></label>
-              <input class="input" id="f-phone" name="tel" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="Enter your mobile number" maxlength="15" required />
+              <input class="input" id="f-phone" name="tel" type="tel" inputmode="numeric" autocomplete="tel-national" placeholder="10-digit number" maxlength="15" required />
             </div>
             <p class="err"></p>
           </div>
           <div class="row2">
             <div class="field" data-f="city">
-              <label for="f-city"><span class="num">03</span>City</label>
-              <input class="input" id="f-city" name="city" list="city-list" autocomplete="address-level2" placeholder="Enter your city" maxlength="50" required />
+              <label for="f-city">City</label>
+              <input class="input" id="f-city" name="city" list="city-list" autocomplete="address-level2" placeholder="e.g. Mumbai" maxlength="50" required />
               <datalist id="city-list"></datalist>
               <p class="err"></p>
             </div>
             <div class="field" data-f="pincode">
-              <label for="f-pin"><span class="num">04</span><span id="pin-label">PIN code</span></label>
-              <input class="input" id="f-pin" name="postal" inputmode="numeric" autocomplete="postal-code" placeholder="Enter your PIN code" maxlength="10" required />
+              <label for="f-pin"><span id="pin-label">PIN code</span></label>
+              <input class="input" id="f-pin" name="postal" inputmode="numeric" autocomplete="postal-code" placeholder="6 digits" maxlength="10" required />
               <p class="err"></p><p class="hint" id="pin-hint" hidden></p>
             </div>
           </div>
-
-          <div class="special">
-            <p class="rule">Special dates · optional</p>
-            <p class="hint center">So we can celebrate your moments with you.</p>
+          <div class="row2">
             <div class="field" data-f="birthday">
-              <span class="label"><span class="num">05</span>Birthday<span class="opt">Optional</span></span>
-              <div class="dmy" id="dob" role="group" aria-label="Birthday"></div>
+              <span class="label">Birthday <span class="opt">Optional</span></span>
+              <div id="dob"></div>
               <p class="err"></p>
             </div>
             <div class="field" data-f="anniversary">
-              <span class="label"><span class="num">06</span>Anniversary<span class="opt">Optional</span></span>
-              <div class="dmy" id="anniv" role="group" aria-label="Anniversary"></div>
-              <label class="check na"><input type="checkbox" id="anniv-na" /><span>Not applicable</span></label>
+              <span class="label">Anniversary <span class="opt">Optional</span></span>
+              <div id="anniv"></div>
               <p class="err"></p>
             </div>
           </div>
-
-          <div class="consents">
-            <label class="check" data-f="terms"><input type="checkbox" id="c-terms" required /><span>I agree to the campaign <a href="#" data-open="terms">Terms &amp; Conditions</a> and acknowledge the <a href="#" data-open="privacy">Privacy Policy</a>.</span></label>
-            <p class="err" id="err-terms"></p>
-            <label class="check"><input type="checkbox" id="c-mkt" /><span>I would like to receive exclusive MK Jewels offers, birthday wishes, anniversary wishes and promotional updates.</span></label>
-          </div>
           <p class="err form-err" id="reg-error" role="alert"></p>
-          <button class="btn btn-gold btn-lg btn-block" id="btn-register" type="submit"><span class="orn">✦</span><span class="lbl">Register &amp; roll the dice</span><span class="orn">✦</span></button>
-          <p class="hint center secure">One reward per mobile number. Your details are kept private.</p>
+          <button class="btn btn-gold btn-lg btn-block" id="btn-register" type="submit"><span class="lbl">Continue</span></button>
+          <p class="hint center">One reward per mobile number.</p>
         </form>
       </div>
     </section>
 
-    <!-- ============== PLAY + RESULT ============== -->
+    <!-- PLAY + RESULT -->
     <section class="view" id="v-play" data-view="play" data-state="ready" hidden>
       <div class="play-head">
-        <p class="eyebrow play-step">Step 2 of 2 · The Golden Roll</p>
-        <h2 class="display play-title"><span class="gold-text" id="play-greeting">Welcome. Your golden moment has arrived.</span></h2>
+        <h2 class="display play-title" id="play-greeting">Your roll</h2>
       </div>
       <div class="play-stage">
         <div class="stage-frame big"><div class="stage-host" id="stage-play"></div>
@@ -156,139 +131,128 @@
           <div class="dice-readout" id="dice-readout" aria-live="polite"></div>
         </div>
         <div class="play-controls">
-          <p class="hint center" id="play-hint">Pick up the dice and fling them across the tray — or tap the button.</p>
-          <button class="btn btn-gold btn-lg btn-block" id="btn-roll" type="button"><span class="orn">✦</span><span class="lbl">Roll the golden dice</span><span class="orn">✦</span></button>
+          <p class="hint center" id="play-hint">Drag and flick the dice, or tap Roll.</p>
+          <button class="btn btn-gold btn-lg btn-block" id="btn-roll" type="button"><span class="lbl">Roll the dice</span></button>
+          <button class="btn btn-quiet" id="btn-motion" type="button" hidden><svg class="icon"><use href="#i-shake"/></svg>Turn on shake to roll</button>
         </div>
       </div>
 
       <div class="result" id="result" aria-live="polite">
-        <div class="reward-hero">
-          <p class="eyebrow" id="r-eyebrow">Your golden reward is ready</p>
-          <p class="jackpot-badge" id="r-jackpot" hidden><svg class="icon"><use href="#i-spark"/></svg>Double six jackpot<svg class="icon"><use href="#i-spark"/></svg></p>
-          <h2 class="display congrats"><span class="gold-text">Congratulations,</span> <em class="gold-text" id="r-name">Guest</em><span class="gold-text">!</span></h2>
-          <div class="offer"><span class="offer-num gold-text"><span id="r-offer">20</span>%</span><span class="offer-off gold-text">OFF</span></div>
-          <p class="offer-sub">on making charges</p>
-          <p class="dice-line" id="r-dice"></p>
+        <div class="reward">
+          <p class="eyebrow" id="r-eyebrow">Your reward</p>
+          <p class="jackpot" id="r-jackpot" hidden>Double six</p>
+          <p class="offer"><span id="r-offer">20</span><span class="pct">%</span></p>
+          <p class="offer-sub">off making charges</p>
         </div>
 
         <div class="coupon" id="coupon">
-          <div class="coupon-notch l"></div><div class="coupon-notch r"></div>
-          <div class="coupon-top">
-            <img src="/brand/mk-logo-sm.png" alt="" class="coupon-logo" />
-            <div><p class="eyebrow">Coupon code</p><p class="coupon-code" id="r-code">—</p></div>
-            <button class="icon-btn" id="btn-copy" type="button" aria-label="Copy coupon code"><svg class="icon"><use href="#i-copy"/></svg></button>
+          <div class="coupon-main">
+            <div>
+              <p class="coupon-label">Coupon code</p>
+              <p class="coupon-code" id="r-code">—</p>
+            </div>
+            <button class="btn btn-ghost btn-sm" id="btn-copy" type="button"><svg class="icon"><use href="#i-copy"/></svg><span class="lbl">Copy</span></button>
           </div>
-          <div class="coupon-meta">
-            <div><span>Issued</span><b id="r-issued">—</b></div>
-            <div><span>Valid until</span><b id="r-expiry">—</b></div>
-            <div><span>Status</span><b id="r-status">Active</b></div>
-          </div>
-          <div class="coupon-actions">
-            <button class="btn btn-ghost btn-sm" id="btn-dl-coupon" type="button"><svg class="icon"><use href="#i-down"/></svg>Download</button>
-            <button class="btn btn-ghost btn-sm" id="btn-wa-coupon" type="button"><svg class="icon"><use href="#i-wa"/></svg>WhatsApp</button>
+          <div class="coupon-foot">
+            <span id="r-valid">Valid until —</span>
+            <span class="coupon-actions">
+              <button class="icon-btn" id="btn-dl-coupon" type="button" aria-label="Save coupon image"><svg class="icon"><use href="#i-down"/></svg></button>
+              <button class="icon-btn" id="btn-wa-coupon" type="button" aria-label="Share on WhatsApp"><svg class="icon"><use href="#i-wa"/></svg></button>
+            </span>
           </div>
           <div class="stamp" id="r-stamp" hidden>Redeemed</div>
         </div>
 
-        <p class="rule claim-rule">Two ways to claim · one exclusive reward</p>
-        <div class="claim-grid">
-          <article class="card claim-card" id="card-online">
-            <header><span class="claim-ic"><svg class="icon"><use href="#i-bag"/></svg></span><div><p class="eyebrow dim">Option 01</p><h3 class="display">Claim your reward online</h3></div></header>
-            <p class="claim-desc">Discover your next favourite jewellery from the comfort of your home. Our personal jewellery consultants will assist you.</p>
-            <div class="qr-box"><div class="qr" id="qr-online"></div><p class="qr-cap">Scan to submit your online purchase enquiry</p></div>
-            <p class="claim-status" id="online-status" hidden></p>
-            <button class="btn btn-gold btn-block" type="button" data-claim="online"><span class="lbl">Claim online</span></button>
-            <div class="mini-actions">
-              <button class="btn btn-quiet" type="button" data-qr-dl="online"><svg class="icon"><use href="#i-down"/></svg>Download QR</button>
-              <button class="btn btn-quiet" type="button" data-qr-share="online"><svg class="icon"><use href="#i-wa"/></svg>Share</button>
-              <a class="btn btn-quiet" data-qr-open="online" target="_blank" rel="noopener"><svg class="icon"><use href="#i-link"/></svg>Open link</a>
-            </div>
-          </article>
-          <article class="card claim-card" id="card-store">
-            <header><span class="claim-ic"><svg class="icon"><use href="#i-store"/></svg></span><div><p class="eyebrow dim">Option 02</p><h3 class="display">Experience luxury in our store</h3></div></header>
-            <p class="claim-desc">Reserve your personal jewellery experience at your preferred MK Jewels branch in Mumbai or Ahmedabad.</p>
-            <div class="qr-box"><div class="qr" id="qr-store"></div><p class="qr-cap">Scan to choose your branch, date &amp; time — show it at the store</p></div>
-            <p class="claim-status" id="store-status" hidden></p>
-            <button class="btn btn-gold btn-block" type="button" data-claim="store"><span class="lbl">Book store visit</span></button>
-            <div class="mini-actions">
-              <button class="btn btn-quiet" type="button" data-qr-dl="store"><svg class="icon"><use href="#i-down"/></svg>Download QR</button>
-              <button class="btn btn-quiet" type="button" data-qr-share="store"><svg class="icon"><use href="#i-wa"/></svg>Share</button>
-              <a class="btn btn-quiet" data-qr-open="store" target="_blank" rel="noopener"><svg class="icon"><use href="#i-link"/></svg>Open link</a>
-            </div>
-          </article>
+        <div class="claim">
+          <h3 class="claim-title">How would you like to use it?</h3>
+          <button class="claim-opt" type="button" data-claim="online">
+            <span class="claim-ic"><svg class="icon"><use href="#i-bag"/></svg></span>
+            <span class="claim-txt"><b>Shop online</b><small id="online-status">A consultant shows you pieces on WhatsApp or video</small></span>
+            <svg class="icon chev"><use href="#i-chev"/></svg>
+          </button>
+          <button class="claim-opt" type="button" data-claim="store">
+            <span class="claim-ic"><svg class="icon"><use href="#i-store"/></svg></span>
+            <span class="claim-txt"><b>Visit a store</b><small id="store-status">Book a time at a Mumbai or Ahmedabad branch</small></span>
+            <svg class="icon chev"><use href="#i-chev"/></svg>
+          </button>
         </div>
-        <p class="fineprint">Offer applies to making charges only, not to the full invoice. One reward per mobile number. The coupon can be redeemed once, online or in store, before it expires. <a href="#" data-open="terms">Terms apply</a>.</p>
+
+        <details class="qr-more">
+          <summary><svg class="icon"><use href="#i-qr"/></svg>Continue on another phone</summary>
+          <div class="qr-pair">
+            <figure><div class="qr" id="qr-online"></div><figcaption>Shop online</figcaption><button class="btn btn-quiet" type="button" data-qr-dl="online"><svg class="icon"><use href="#i-down"/></svg>Save</button></figure>
+            <figure><div class="qr" id="qr-store"></div><figcaption>Visit a store</figcaption><button class="btn btn-quiet" type="button" data-qr-dl="store"><svg class="icon"><use href="#i-down"/></svg>Save</button></figure>
+          </div>
+        </details>
+
+        <p class="fineprint">Valid on making charges only. Use once, online or in store. <a href="#" data-open="terms">Terms</a></p>
       </div>
     </section>
 
-    <!-- ============== ONLINE CLAIM ============== -->
+    <!-- ONLINE CLAIM -->
     <section class="view" id="v-online" data-view="online" hidden>
       <div class="narrow">
         <button class="btn btn-quiet back" type="button" data-back><svg class="icon"><use href="#i-back"/></svg>My reward</button>
         <div class="reward-strip" data-strip></div>
         <div data-pane="form">
-          <p class="eyebrow">Claim online</p>
-          <h2 class="display section-title"><span class="gold-text">Jewellery,</span> <em class="gold-text">brought to you</em></h2>
-          <p class="lede small">Tell us what you love — a personal consultant will reach out with handpicked pieces and your reward applied.</p>
+          <h2 class="display section-title">Shop online</h2>
+          <p class="lede small">Tell us what you like. A consultant will get in touch with pieces for you.</p>
           <form class="card form" id="online-form" novalidate>
-            <div class="field"><span class="label"><span class="num">01</span>What catches your eye?</span><div class="chips" id="o-interests"></div><p class="err" data-e="interests"></p></div>
-            <div class="field"><span class="label"><span class="num">02</span>How should we reach you?</span><div class="chips" id="o-method"></div><p class="err" data-e="method"></p></div>
-            <div class="field"><span class="label"><span class="num">03</span>Preferred day</span><div class="cal" id="o-cal"></div><p class="err" data-e="date"></p></div>
-            <div class="field"><span class="label"><span class="num">04</span>Preferred time</span><div class="chips" id="o-time"></div><p class="err" data-e="time"></p></div>
-            <div class="field"><label for="o-notes"><span class="num">05</span>Anything else?<span class="opt">Optional</span></label><textarea class="input" id="o-notes" maxlength="500" placeholder="Occasion, budget, design ideas, metal preference…"></textarea></div>
+            <div class="field"><span class="label">What are you looking for?</span><div class="chips" id="o-interests"></div><p class="err" data-e="interests"></p></div>
+            <div class="field"><span class="label">How should we reach you?</span><div class="chips" id="o-method"></div><p class="err" data-e="method"></p></div>
+            <div class="field"><span class="label">Preferred day</span><div class="cal" id="o-cal"></div><p class="err" data-e="date"></p></div>
+            <div class="field"><span class="label">Preferred time</span><div class="chips" id="o-time"></div><p class="err" data-e="time"></p></div>
+            <div class="field"><label for="o-notes">Notes <span class="opt">Optional</span></label><textarea class="input" id="o-notes" maxlength="500" placeholder="Occasion, budget, designs you like"></textarea></div>
             <p class="err form-err" role="alert" data-e="form"></p>
-            <button class="btn btn-gold btn-lg btn-block" type="submit"><span class="orn">✦</span><span class="lbl">Send my enquiry</span><span class="orn">✦</span></button>
+            <button class="btn btn-gold btn-lg btn-block" type="submit"><span class="lbl">Send enquiry</span></button>
           </form>
         </div>
         <div data-pane="done" hidden></div>
       </div>
     </section>
 
-    <!-- ============== STORE VISIT ============== -->
+    <!-- STORE VISIT -->
     <section class="view" id="v-store" data-view="store" hidden>
       <div class="narrow">
         <button class="btn btn-quiet back" type="button" data-back><svg class="icon"><use href="#i-back"/></svg>My reward</button>
         <div class="reward-strip" data-strip></div>
         <div data-pane="form">
-          <p class="eyebrow">Visit our store</p>
-          <h2 class="display section-title"><span class="gold-text">Experience luxury</span> <em class="gold-text">in person</em></h2>
-          <p class="lede small">Reserve a private appointment. Your consultant will have your reward ready.</p>
+          <h2 class="display section-title">Book a store visit</h2>
+          <p class="lede small">Pick a branch and a time. Your reward will be ready when you arrive.</p>
           <form class="card form" id="store-form" novalidate>
-            <div class="field"><span class="label"><span class="num">01</span>City</span><div class="seg" id="s-city" role="tablist"></div></div>
-            <div class="field"><span class="label"><span class="num">02</span>Choose your branch</span><div class="branches" id="s-branches"></div><p class="err" data-e="branch"></p></div>
-            <div class="field"><span class="label"><span class="num">03</span>Date</span><div class="cal" id="s-cal"></div><p class="err" data-e="date"></p></div>
-            <div class="field"><span class="label"><span class="num">04</span>Time</span><div class="slots" id="s-slots"><p class="hint">Choose a branch and date to see available times.</p></div><p class="err" data-e="time"></p></div>
-            <div class="field"><span class="label"><span class="num">05</span>Interested in<span class="opt">Optional</span></span><div class="chips" id="s-interests"></div></div>
-            <div class="field"><label for="s-notes"><span class="num">06</span>Anything else?<span class="opt">Optional</span></label><textarea class="input" id="s-notes" maxlength="500" placeholder="Occasion, number of guests, pieces you'd like to see…"></textarea></div>
+            <div class="field"><span class="label">City</span><div class="seg" id="s-city" role="tablist"></div></div>
+            <div class="field"><span class="label">Branch</span><div class="branches" id="s-branches"></div><p class="err" data-e="branch"></p></div>
+            <div class="field"><span class="label">Date</span><div class="cal" id="s-cal"></div><p class="err" data-e="date"></p></div>
+            <div class="field"><span class="label">Time</span><div class="slots" id="s-slots"><p class="hint">Choose a branch and date to see times.</p></div><p class="err" data-e="time"></p></div>
+            <div class="field"><span class="label">Interested in <span class="opt">Optional</span></span><div class="chips" id="s-interests"></div></div>
+            <div class="field"><label for="s-notes">Notes <span class="opt">Optional</span></label><textarea class="input" id="s-notes" maxlength="500" placeholder="Occasion, number of guests, pieces to see"></textarea></div>
             <p class="err form-err" role="alert" data-e="form"></p>
-            <button class="btn btn-gold btn-lg btn-block" type="submit"><span class="orn">✦</span><span class="lbl">Confirm my visit</span><span class="orn">✦</span></button>
+            <button class="btn btn-gold btn-lg btn-block" type="submit"><span class="lbl">Confirm visit</span></button>
           </form>
         </div>
         <div data-pane="done" hidden></div>
       </div>
     </section>
 
-    <!-- ============== MESSAGE ============== -->
+    <!-- MESSAGE -->
     <section class="view" id="v-message" data-view="message" hidden>
       <div class="narrow center-col">
         <img class="brand-logo sm" src="/brand/mk-logo.png" alt="MK Jewels" />
-        <h2 class="display section-title gold-text" id="msg-title">Something went wrong</h2>
+        <h2 class="display section-title" id="msg-title">Something went wrong</h2>
         <p class="lede small" id="msg-body"></p>
-        <a class="btn btn-ghost" href="./" id="msg-cta">Go to MK Jewels Lucky Double Dice</a>
+        <a class="btn btn-ghost" href="./" id="msg-cta">Back to Lucky Double Dice</a>
       </div>
     </section>
   </main>
 
   <footer class="site-foot">
-    <p class="foot-brand">MK Jewels — since 1999</p>
-    <p class="foot-tag gold-text">Every roll wins. Every moment shines.</p>
-    <p class="foot-cities">Mumbai &nbsp;|&nbsp; Ahmedabad</p>
-    <p class="foot-links"><a href="#" data-open="terms">Terms &amp; Conditions</a><span>·</span><a href="#" data-open="privacy">Privacy</a><span>·</span><a href="https://www.mkjewels.in" target="_blank" rel="noopener">mkjewels.in</a></p>
+    <p>MK Jewels · Since 1999 · Mumbai | Ahmedabad</p>
+    <p class="foot-links"><a href="#" data-open="terms">Terms</a><a href="#" data-open="privacy">Privacy</a><a href="https://www.mkjewels.in" target="_blank" rel="noopener">mkjewels.in</a></p>
   </footer>
 
   <dialog id="sheet" class="sheet" aria-labelledby="sheet-title">
     <div class="sheet-inner">
-      <button class="icon-btn sheet-close" type="button" aria-label="Close" data-close>✕</button>
+      <button class="icon-btn sheet-close" type="button" aria-label="Close" data-close><svg viewBox="0 0 24 24" width="18" height="18"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       <h2 class="display" id="sheet-title"></h2>
       <div class="sheet-body" id="sheet-body"></div>
     </div>
