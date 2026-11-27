@@ -32,33 +32,40 @@ function drawLogo(g, cx, y, h) {
 }
 const toBlob = (c) => new Promise((r) => c.toBlob(r, 'image/png'));
 
-export async function couponPng(r) {
+export async function couponPng(r, qrUrl) {
   await logoReady; if (document.fonts) await document.fonts.ready;
-  const W = 1080, H = 1350, c = document.createElement('canvas'); c.width = W; c.height = H;
+  const W = 1080, H = 1600, c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d'); g.textAlign = 'center'; g.textBaseline = 'alphabetic';
   frame(g, W, H);
-  let y = drawLogo(g, W / 2, 110, 230) + 70;
+  let y = drawLogo(g, W / 2, 100, 190) + 62;
   g.fillStyle = '#d4b477'; g.font = `500 26px ${SANS}`; spaced(g, 'LUCKY DOUBLE DICE', W / 2, y, 10);
-  y += 78;
-  g.fillStyle = '#fff8e7'; g.font = `italic 500 52px ${SERIF}`; g.fillText(`Congratulations, ${r.firstName}`, W / 2, y);
-  y += 175;
-  g.fillStyle = goldGradient(g, 0, y - 150, 0, y);
-  g.font = `600 190px ${SERIF}`; g.fillText(`${r.offer}% OFF`, W / 2, y);
-  y += 62; g.fillStyle = '#e8d6ae'; g.font = `500 30px ${SANS}`; spaced(g, 'ON MAKING CHARGES', W / 2, y, 9);
-  if (r.jackpot) { y += 58; g.fillStyle = '#d4af37'; g.font = `600 28px ${SANS}`; spaced(g, '✦ DOUBLE SIX JACKPOT ✦', W / 2, y, 8); }
   y += 70;
+  g.fillStyle = '#fff8e7'; g.font = `italic 500 50px ${SERIF}`; g.fillText(`Congratulations, ${r.firstName}`, W / 2, y);
+  y += 165;
+  g.fillStyle = goldGradient(g, 0, y - 140, 0, y);
+  g.font = `600 176px ${SERIF}`; g.fillText(`${r.offer}% OFF`, W / 2, y);
+  y += 56; g.fillStyle = '#e8d6ae'; g.font = `500 29px ${SANS}`; spaced(g, 'ON MAKING CHARGES', W / 2, y, 9);
+  if (r.jackpot) { y += 52; g.fillStyle = '#d4af37'; g.font = `600 27px ${SANS}`; spaced(g, 'DOUBLE SIX JACKPOT', W / 2, y, 8); }
+  y += 56;
   g.strokeStyle = 'rgba(212,180,119,0.55)'; g.setLineDash([10, 10]); g.lineWidth = 2;
-  roundRect(g, 170, y, W - 340, 170, 18); g.stroke(); g.setLineDash([]);
-  g.fillStyle = '#a89878'; g.font = `500 22px ${SANS}`; spaced(g, 'COUPON CODE', W / 2, y + 52, 8);
-  g.fillStyle = '#fff8e7'; g.font = `600 58px ${SANS}`; spaced(g, r.couponCode, W / 2, y + 125, 4);
-  y += 230;
-  g.fillStyle = '#cdbb95'; g.font = `400 28px ${SANS}`;
+  roundRect(g, 170, y, W - 340, 150, 18); g.stroke(); g.setLineDash([]);
+  g.fillStyle = '#a89878'; g.font = `500 22px ${SANS}`; spaced(g, 'COUPON CODE', W / 2, y + 48, 8);
+  g.fillStyle = '#fff8e7'; g.font = `600 56px ${SANS}`; spaced(g, r.couponCode, W / 2, y + 115, 4);
+  y += 190;
+  if (qrUrl) {
+    const S = 330, q = await qrCanvas(qrUrl, S);
+    g.fillStyle = '#fff8e7'; roundRect(g, (W - S - 36) / 2, y, S + 36, S + 36, 22); g.fill();
+    g.drawImage(q, (W - S) / 2, y + 18, S, S);
+    y += S + 36 + 50;
+    g.fillStyle = '#e8d6ae'; g.font = `500 26px ${SANS}`; g.fillText('Show this QR code at any MK Jewels store', W / 2, y);
+    y += 50;
+  }
+  g.fillStyle = '#cdbb95'; g.font = `400 27px ${SANS}`;
   g.fillText(`Dice ${r.dice[0]} + ${r.dice[1]} = ${r.total}   ·   Valid until ${prettyDate(r.expiresOn)}`, W / 2, y);
-  y += 60;
+  y += 52;
   g.fillStyle = '#8a7d63'; g.font = `400 21px ${SANS}`;
   g.fillText('Applicable on making charges only. Single use. Verification required at redemption.', W / 2, y);
-  g.fillText('Present this coupon at any MK Jewels store or to our online consultant.', W / 2, y + 34);
-  g.fillStyle = '#d4b477'; g.font = `500 22px ${SANS}`; spaced(g, 'MUMBAI  |  AHMEDABAD  ·  SINCE 1999', W / 2, H - 96, 6);
+  g.fillStyle = '#d4b477'; g.font = `500 22px ${SANS}`; spaced(g, 'MUMBAI  |  AHMEDABAD  ·  SINCE 1999', W / 2, H - 90, 6);
   return toBlob(c);
 }
 

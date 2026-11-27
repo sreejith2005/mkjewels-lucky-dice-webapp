@@ -91,6 +91,8 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
   - Respect `prefers-reduced-motion`.
   - Must work in the WhatsApp/Instagram in-app browsers (no popups on load, no reliance on `localStorage` succeeding — wrap it in try/catch like `store` in `main.js`).
 - **Audio:** only after a user gesture (`unlockAudio` on the first pointerdown). Keep sounds synthesised in `audio.js`; don't add audio files.
+- **Coupon reveal:** after the roll only the % and a "Download my coupon" button show. Tapping it downloads `couponPng(r, storeQrUrl)` (code + Store QR) and only then reveals the coupon card, the claim options and sharing. Revealed state is remembered per coupon (`mk_ldd_revealed_<code>`); returning players see it open.
+- **Throw feel:** dice are thrown down onto the felt from about 1.7 units high (air time ~0.2 s, ~1.5 s rolling); rolls over 3.2 s are rejected; the last 0.6 s plays at 0.7×.
 - **How-to-roll popup:** `#howto` opens every time the play view is entered before a roll (shake + hold-and-throw on phones; drag-and-throw on desktop). Its "Let's roll" tap is where iOS motion permission is requested.
 - **Haptics:** go through `haptic()` / `hapticPattern()` only.
 

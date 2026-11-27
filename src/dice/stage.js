@@ -160,7 +160,7 @@ export class DiceStage {
     this.handSpin = [new THREE.Vector3(0.6, 0.9, 0.3), new THREE.Vector3(-0.7, 0.5, 0.8)];
     this.shakeOffset = new THREE.Vector3(); this.shakeTarget = new THREE.Vector3();
     this.camBase = new THREE.Vector3(); this.camLook = new THREE.Vector3(); this.camTarget = new THREE.Vector3();
-    this.dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -2.2);
+    this.dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1.75);
     this.ray = new THREE.Raycaster(); this.ndc = new THREE.Vector2();
     this.dice = []; this.blobs = [];
 
@@ -311,7 +311,7 @@ export class DiceStage {
       p.x = THREE.MathUtils.clamp(p.x, -this.trayW / 2 + 0.8, this.trayW / 2 - 0.8);
       p.z = THREE.MathUtils.clamp(p.z, -this.trayD / 2 + 0.8, this.trayD / 2 - 0.6);
       this.samples.push({ t: performance.now(), p }); if (this.samples.length > 8) this.samples.shift();
-      this.handPos[0].set(p.x - 0.9, 2.2, p.z + 0.1); this.handPos[1].set(p.x + 0.9, 2.35, p.z - 0.1);
+      this.handPos[0].set(p.x - 0.9, 1.7, p.z + 0.1); this.handPos[1].set(p.x + 0.9, 1.8, p.z - 0.1);
     };
     this.onUp = (e) => {
       if (!this.dragging) return;
@@ -416,7 +416,7 @@ export class DiceStage {
   playback(dt) {
     const rec = this.rec, n = rec.frameCount, f = rec.frames;
     const remaining = (n - this.playhead) / HZ;
-    const speed = this.reduced ? 1.6 : remaining < 0.9 ? 0.55 : 1;
+    const speed = this.reduced ? 1.6 : remaining < 0.6 ? 0.7 : 1;
     this.playhead = Math.min(this.playhead + dt * HZ * speed, n - 1);
     const i0 = Math.floor(this.playhead), i1 = Math.min(i0 + 1, n - 1), a = this.playhead - i0;
     const blend = this.blendFrom ? Math.min(this.playhead / 10, 1) : 1;

@@ -68,7 +68,6 @@
           <p class="invite" id="invite" hidden><svg class="icon"><use href="#i-users"/></svg><span></span></p>
           <p class="eyebrow">Lucky Double Dice</p>
           <h1 class="display hero-title">Roll the golden dice. <em>Win up to 50% off</em> making charges.</h1>
-          <p class="lede">Every roll wins at least 20%. A double six wins 50%.</p>
           <div class="cta-row">
             <button class="btn btn-gold btn-lg" id="btn-play" type="button">Play now</button>
             <button class="btn btn-ghost" id="btn-my-reward" type="button" hidden>View my reward</button>
@@ -80,8 +79,8 @@
         </div>
       </div>
       <section class="odds" aria-labelledby="odds-title">
-        <h2 class="display" id="odds-title">Every roll wins</h2>
-        <ul class="odds-grid" id="odds"></ul>
+        <p class="odds-title" id="odds-title">Your discount by dice total</p>
+        <ul class="odds-list" id="odds"></ul>
       </section>
     </section>
 
@@ -109,8 +108,11 @@
           <div class="row2">
             <div class="field" data-f="city">
               <label for="f-city">City</label>
-              <input class="input" id="f-city" name="city" list="city-list" autocomplete="address-level2" placeholder="e.g. Mumbai" maxlength="50" required />
-              <datalist id="city-list"></datalist>
+              <div class="combo">
+                <input class="input" id="f-city" name="city" autocomplete="address-level2" placeholder="Start typing your city" maxlength="50" required role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="city-list" />
+                <ul class="combo-list" id="city-list" role="listbox" hidden></ul>
+              </div>
+              <div class="quick-picks" id="city-quick"><button type="button" class="chip sm" data-city="Mumbai">Mumbai</button><button type="button" class="chip sm" data-city="Ahmedabad">Ahmedabad</button></div>
               <p class="err"></p>
             </div>
             <div class="field" data-f="pincode">
@@ -163,51 +165,54 @@
           <p class="offer-sub">off making charges</p>
         </div>
 
-        <div class="coupon" id="coupon">
-          <div class="coupon-main">
-            <div>
-              <p class="coupon-label">Your coupon code</p>
-              <p class="coupon-code" id="r-code">—</p>
+        <div class="unlock" id="unlock">
+          <button class="btn btn-gold btn-lg btn-block" id="btn-get-coupon" type="button"><svg class="icon"><use href="#i-down"/></svg><span class="lbl">Download my coupon</span></button>
+          <p class="hint">Your coupon code and QR code are inside.</p>
+        </div>
+
+        <div class="revealed" id="revealed" hidden>
+          <div class="coupon" id="coupon">
+            <div class="coupon-main">
+              <div>
+                <p class="coupon-label">Your coupon code</p>
+                <p class="coupon-code" id="r-code">—</p>
+              </div>
+              <button class="btn btn-ghost btn-sm" id="btn-copy" type="button"><svg class="icon"><use href="#i-copy"/></svg><span class="lbl">Copy</span></button>
             </div>
-            <button class="btn btn-ghost btn-sm" id="btn-copy" type="button"><svg class="icon"><use href="#i-copy"/></svg><span class="lbl">Copy</span></button>
+            <div class="coupon-qr">
+              <div class="qr" id="qr-store"></div>
+              <p class="hint">Show this QR code at any MK Jewels store.</p>
+            </div>
+            <div class="coupon-foot">
+              <span id="r-valid">Valid until —</span>
+              <button class="btn btn-quiet" id="btn-dl-coupon" type="button"><svg class="icon"><use href="#i-down"/></svg>Save again</button>
+            </div>
+            <div class="stamp" id="r-stamp" hidden>Redeemed</div>
           </div>
-          <div class="coupon-foot">
-            <span id="r-valid">Valid until —</span>
-            <button class="icon-btn" id="btn-dl-coupon" type="button" aria-label="Save coupon image"><svg class="icon"><use href="#i-down"/></svg></button>
-          </div>
-          <div class="stamp" id="r-stamp" hidden>Redeemed</div>
-        </div>
 
-        <div class="claim">
-          <h3 class="block-title">How would you like to use it?</h3>
-          <button class="claim-opt" type="button" data-claim="online">
-            <span class="claim-ic"><svg class="icon"><use href="#i-bag"/></svg></span>
-            <span class="claim-txt"><b>Shop online</b><small id="online-status">A consultant shows you pieces on WhatsApp or video</small></span>
-            <svg class="icon chev"><use href="#i-chev"/></svg>
-          </button>
-          <button class="claim-opt" type="button" data-claim="store">
-            <span class="claim-ic"><svg class="icon"><use href="#i-store"/></svg></span>
-            <span class="claim-txt"><b>Visit a store</b><small id="store-status">Book a time at a Mumbai or Ahmedabad branch</small></span>
-            <svg class="icon chev"><use href="#i-chev"/></svg>
-          </button>
-        </div>
+          <div class="claim">
+            <h3 class="block-title">How would you like to use it?</h3>
+            <button class="claim-opt" type="button" data-claim="online">
+              <span class="claim-ic"><svg class="icon"><use href="#i-bag"/></svg></span>
+              <span class="claim-txt"><b>Shop online</b><small id="online-status">A consultant shows you pieces on WhatsApp or video</small></span>
+              <svg class="icon chev"><use href="#i-chev"/></svg>
+            </button>
+            <button class="claim-opt" type="button" data-claim="store">
+              <span class="claim-ic"><svg class="icon"><use href="#i-store"/></svg></span>
+              <span class="claim-txt"><b>Visit a store</b><small id="store-status">Book a time at a Mumbai or Ahmedabad branch</small></span>
+              <svg class="icon chev"><use href="#i-chev"/></svg>
+            </button>
+          </div>
 
-        <div class="share">
-          <h3 class="block-title">Share with your family and friends</h3>
-          <p class="hint">Send them your invite link so they can roll for their own reward.</p>
-          <div class="share-actions">
-            <button class="btn btn-gold btn-sm" id="btn-share-wa" type="button"><svg class="icon"><use href="#i-wa"/></svg>WhatsApp</button>
-            <button class="btn btn-ghost btn-sm" id="btn-share-copy" type="button"><svg class="icon"><use href="#i-link"/></svg><span class="lbl">Copy link</span></button>
+          <div class="share">
+            <h3 class="block-title">Share with your family and friends</h3>
+            <p class="hint">Send them your invite link so they can roll for their own reward.</p>
+            <div class="share-actions">
+              <button class="btn btn-gold btn-sm" id="btn-share-wa" type="button"><svg class="icon"><use href="#i-wa"/></svg>WhatsApp</button>
+              <button class="btn btn-ghost btn-sm" id="btn-share-copy" type="button"><svg class="icon"><use href="#i-link"/></svg><span class="lbl">Copy link</span></button>
+            </div>
           </div>
         </div>
-
-        <details class="qr-more">
-          <summary><svg class="icon"><use href="#i-qr"/></svg>Continue on another phone</summary>
-          <div class="qr-pair">
-            <figure><div class="qr" id="qr-online"></div><figcaption>Shop online</figcaption><button class="btn btn-quiet" type="button" data-qr-dl="online"><svg class="icon"><use href="#i-down"/></svg>Save</button></figure>
-            <figure><div class="qr" id="qr-store"></div><figcaption>Visit a store</figcaption><button class="btn btn-quiet" type="button" data-qr-dl="store"><svg class="icon"><use href="#i-down"/></svg>Save</button></figure>
-          </div>
-        </details>
 
         <button class="btn btn-ghost home-link" type="button" data-home><svg class="icon"><use href="#i-back"/></svg>Back to home</button>
         <p class="fineprint">Valid on making charges only. Use once, online or in store. <a href="#" data-open="terms">Terms</a></p>

@@ -22,7 +22,7 @@ export function trayFor(width, height) {
 }
 /** Where the two dice float "in the hand" before a throw (front of the tray). */
 export function handAnchor(tray) {
-  return [[-1, 2.2, tray.d / 2 - 1.4], [1, 2.35, tray.d / 2 - 1.2]];
+  return [[-1, 1.7, tray.d / 2 - 1.4], [1, 1.8, tray.d / 2 - 1.2]];
 }
 
 /** Rejection counters (diagnostics for tests / tuning). */
@@ -35,7 +35,7 @@ function buildWorld(tray) {
   world.broadphase = new CANNON.NaiveBroadphase();
   world.solver.iterations = 14;
   const mDie = new CANNON.Material('dice'), mFloor = new CANNON.Material('floor'), mWall = new CANNON.Material('wall');
-  world.addContactMaterial(new CANNON.ContactMaterial(mDie, mFloor, { friction: 0.32, restitution: 0.32 }));
+  world.addContactMaterial(new CANNON.ContactMaterial(mDie, mFloor, { friction: 0.24, restitution: 0.22 }));
   world.addContactMaterial(new CANNON.ContactMaterial(mDie, mWall, { friction: 0.08, restitution: 0.55 }));
   world.addContactMaterial(new CANNON.ContactMaterial(mDie, mDie, { friction: 0.12, restitution: 0.42 }));
 
@@ -53,7 +53,7 @@ function buildWorld(tray) {
   world.addBody(ceiling);
   const dice = [0, 1].map(() => {
     const b = new CANNON.Body({ mass: 1, material: mDie, shape: new CANNON.Box(new CANNON.Vec3(DIE / 2, DIE / 2, DIE / 2)),
-      linearDamping: 0.08, angularDamping: 0.12, allowSleep: true, sleepSpeedLimit: 0.12, sleepTimeLimit: 0.35 });
+      linearDamping: 0.05, angularDamping: 0.07, allowSleep: true, sleepSpeedLimit: 0.12, sleepTimeLimit: 0.35 });
     world.addBody(b); return b;
   });
   return { world, floor, walls, dice };
@@ -90,12 +90,12 @@ export function planThrow(tray, hand, velocity = null, { power = 0.5, attempts =
     const base = velocity ? [velocity[0], 0, velocity[2]] : [rnd(-2, 2), 0, -(10 + power * 4 + Math.random() * 2.5)];
     const vx = clamp(base[0] * 0.9 + (Math.random() - 0.5) * (a > 5 ? 2 : 0.6), -6, 6);
     const vz = clamp(Math.min(base[2] * 0.9, -7), -19, -7);
-    const vy = 2.5 + Math.random() * 2.5;
+    const vy = -2.5 + Math.random() * 1.5;          // thrown down onto the felt, not lobbed into the air
     dice.forEach((b, i) => {
-      b.velocity.set(vx + (i ? 0.6 : -0.6), vy + Math.random(), vz + (Math.random() - 0.5) * 1.5);
-      const spin = 14 + Math.random() * 12;
+      b.velocity.set(vx + (i ? 0.6 : -0.6), vy + Math.random() * 0.5, vz + (Math.random() - 0.5) * 1.5);
+      const spin = 18 + Math.random() * 12;
       b.angularVelocity.set((Math.random() - 0.5) * spin, (Math.random() - 0.5) * spin, (Math.random() - 0.5) * spin);
-      b.position.set(hand[i][0], Math.max(hand[i][1], 1.6), Math.min(hand[i][2], tray.d / 2 - 0.7));
+      b.position.set(hand[i][0], Math.min(Math.max(hand[i][1], 1.2), 1.9), Math.min(hand[i][2], tray.d / 2 - 0.7));
       const q = randomQuat(); b.quaternion.set(q[0], q[1], q[2], q[3]);
     });
 
@@ -138,6 +138,7 @@ export function planThrow(tray, hand, velocity = null, { power = 0.5, attempts =
     if (u0.dot < 0.985 || u1.dot < 0.985 || buf[o + 1] > 0.56 || buf[o + 8] > 0.56) { reject('cocked'); continue; }
     if (Math.abs(buf[o]) > tray.w / 2 || Math.abs(buf[o + 7]) > tray.w / 2) { reject('escaped'); continue; }
     if (n < HZ * 0.8) { reject('short'); continue; }
+    if (n > HZ * 3.2 && a < attempts - 5) { reject('long'); continue; }   // no endless rocking
     return {
       frames: buf.slice(0, n * STRIDE), frameCount: n, hits, attempts: a + 1,
       finals: [{ index: u0.index, x: buf[o] }, { index: u1.index, x: buf[o + 7] }]

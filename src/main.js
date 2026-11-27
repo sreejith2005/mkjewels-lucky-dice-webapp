@@ -4,7 +4,7 @@ import { claimUrl, PUBLIC_URL } from './config.js';
 import { $, $$, esc, toast, copyText, calendar, datePicker, chips, countUp, prettyDate, addDays, istToday, time12, googleCalendarUrl } from './lib/ui.js';
 import { countryOptions, validatePhone } from './lib/phone.js';
 import { qrCanvas } from './lib/qr.js';
-import { couponPng, qrCardPng, downloadBlob } from './lib/keepsakes.js';
+import { couponPng, downloadBlob } from './lib/keepsakes.js';
 import * as sfx from './lib/audio.js';
 import { haptic, hapticPattern } from './lib/haptics.js';
 import { confetti } from './lib/fx.js';
@@ -155,7 +155,11 @@ function buildRegistration() {
   const cities = ['Mumbai', 'Ahmedabad', 'Thane', 'Navi Mumbai', 'Pune', 'Surat', 'Vadodara', 'Rajkot', 'Gandhinagar', 'Delhi', 'New Delhi', 'Bengaluru', 'Hyderabad', 'Chennai', 'Kolkata',
     'Jaipur', 'Lucknow', 'Indore', 'Nagpur', 'Nashik', 'Bhopal', 'Kalyan', 'Vasai-Virar', 'Mira-Bhayandar', 'Bhiwandi', 'Panvel', 'Anand', 'Bhavnagar', 'Jamnagar', 'Junagadh', 'Mehsana',
     'Vapi', 'Valsad', 'Bharuch', 'Navsari', 'Udaipur', 'Jodhpur', 'Chandigarh', 'Ludhiana', 'Amritsar', 'Kochi', 'Coimbatore', 'Goa', 'Aurangabad', 'Kolhapur', 'Dubai', 'Abu Dhabi', 'London', 'New York', 'Singapore'];
-  $('#city-list').innerHTML = cities.map((c) => `<option value="${c}">`).join('');
+  cityCombo($('#f-city'), $('#city-list'), cities);
+  $('#city-quick').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-city]'); if (!b) return;
+    $('#f-city').value = b.dataset.city; $('#f-city').dispatchEvent(new Event('input', { bubbles: true })); $('#city-list').hidden = true; haptic(6);
+  });
 
   const today = istToday(), year = Number(today.slice(0, 4));
   const dob = datePicker($('#dob'), { label: 'Birthday', min: `${year - 100}-01-01`, max: today, startView: `${year - 30}-01-01`, onChange: () => setErr('birthday', '') });
@@ -234,6 +238,32 @@ function buildRegistration() {
   });
 }
 
+/** Small autocomplete: at most 5 suggestions, only after typing. */
+function cityCombo(input, list, cities) {
+  let items = [], active = -1;
+  const close = () => { list.hidden = true; input.setAttribute('aria-expanded', 'false'); active = -1; };
+  const pick = (v) => { input.value = v; close(); input.dispatchEvent(new Event('input', { bubbles: true })); };
+  const paint = () => {
+    const q = input.value.trim().toLowerCase();
+    if (!q) { close(); return; }
+    const starts = cities.filter((c) => c.toLowerCase().startsWith(q)), has = cities.filter((c) => !c.toLowerCase().startsWith(q) && c.toLowerCase().includes(q));
+    items = [...starts, ...has].slice(0, 5);
+    if (!items.length || (items.length === 1 && items[0].toLowerCase() === q)) { close(); return; }
+    list.innerHTML = items.map((c, i) => `<li role="option" id="city-opt-${i}" data-v="${esc(c)}" class="${i === active ? 'on' : ''}">${esc(c)}</li>`).join('');
+    list.hidden = false; input.setAttribute('aria-expanded', 'true');
+  };
+  input.addEventListener('input', (e) => { if (e.isTrusted) { active = -1; paint(); } });
+  input.addEventListener('focus', paint);
+  input.addEventListener('keydown', (e) => {
+    if (list.hidden) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); active = (active + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; paint(); input.setAttribute('aria-activedescendant', `city-opt-${active}`); }
+    else if (e.key === 'Enter' && active >= 0) { e.preventDefault(); pick(items[active]); }
+    else if (e.key === 'Escape') close();
+  });
+  list.addEventListener('pointerdown', (e) => { const li = e.target.closest('[data-v]'); if (li) { e.preventDefault(); pick(li.dataset.v); } });
+  input.addEventListener('blur', () => setTimeout(close, 120));
+}
+
 function setBusy(btn, busy, label) {
   const lbl = $('.lbl', btn);
   if (busy) { btn.dataset.label = lbl.textContent; lbl.textContent = label || 'Please wait'; btn.disabled = true; btn.insertAdjacentHTML('afterbegin', '<span class="spinner" aria-hidden="true"></span>'); }
@@ -295,7 +325,7 @@ function startRoll(source, { velocity = null } = {}) {
   sfx.unlockAudio(); haptic(10);
   S.game.beginAwait(source === 'shake' ? 'shake' : 'auto');
   setHint(source === 'shake' ? 'Keep shaking…' : 'Rolling…');
-  setTimeout(() => { r.minDone = true; tryThrow(r); }, source === 'button' ? (reduced ? 200 : 1100) : source === 'swipe' ? 250 : 0);
+  setTimeout(() => { r.minDone = true; tryThrow(r); }, source === 'button' ? (reduced ? 200 : 700) : source === 'swipe' ? 250 : 0);
   api('roll', { session: S.session })
     .then((res) => { if (roll !== r) return; r.res = res; tryThrow(r); })
     .catch((err) => { if (roll === r) failRoll(err); });
@@ -362,22 +392,36 @@ function revealResult(r, { animate, returning } = {}) {
     }, 900);
   } else offerEl.textContent = r.offer;
   paintClaimStatus(r);
-  qrDrawn = false;
-  if ($('.qr-more').open) drawQrs();
+  // The coupon code, QR and claim options stay hidden until the coupon has been downloaded once
+  showCoupon(returning || done || store.get(revealKey(r)) === '1', false);
   paintMyReward();
 }
 
-let qrDrawn = false;
-async function drawQrs() {
-  if (qrDrawn || !S.result) return;
-  qrDrawn = true;
-  const r = S.result;
-  const [qo, qs] = await Promise.all([qrCanvas(claimUrl('ONLINE', r.onlineToken), 360), qrCanvas(claimUrl('STORE', r.storeToken), 360)]);
-  qo.setAttribute('role', 'img'); qo.setAttribute('aria-label', 'Shop online QR code');
-  qs.setAttribute('role', 'img'); qs.setAttribute('aria-label', 'Store visit QR code');
-  $('#qr-online').replaceChildren(qo); $('#qr-store').replaceChildren(qs);
+const revealKey = (r) => `mk_ldd_revealed_${r.couponCode}`;
+function showCoupon(open, scroll) {
+  $('#unlock').hidden = open;
+  $('#revealed').hidden = !open;
+  if (open) {
+    drawQr();
+    if (scroll) setTimeout(() => $('#coupon').scrollIntoView({ behavior: reduced ? 'auto' : 'smooth', block: 'start' }), 80);
+  }
 }
-$('.qr-more').addEventListener('toggle', (e) => { if (e.target.open) drawQrs(); });
+
+let qrFor = null;
+async function drawQr() {
+  const r = S.result;
+  if (!r || qrFor === r.couponCode) return;
+  qrFor = r.couponCode;
+  const q = await qrCanvas(claimUrl('STORE', r.storeToken), 360);
+  q.setAttribute('role', 'img'); q.setAttribute('aria-label', 'Your MK Jewels coupon QR code');
+  $('#qr-store').replaceChildren(q);
+}
+
+async function downloadCoupon() {
+  const r = S.result;
+  const blob = await couponPng(r, claimUrl('STORE', r.storeToken));
+  downloadBlob(blob, `MK-Jewels-${r.couponCode}.png`);
+}
 
 function paintClaimStatus(r) {
   const o = $('#online-status'), s = $('#store-status');
@@ -396,7 +440,15 @@ function bindResultActions() {
     if (!(await copyText(S.result.couponCode))) return;
     const l = $('#btn-copy .lbl'); l.textContent = 'Copied'; haptic(8); setTimeout(() => { l.textContent = 'Copy'; }, 1600);
   });
-  $('#btn-dl-coupon').addEventListener('click', async () => { const b = await couponPng(S.result); downloadBlob(b, `MK-Jewels-${S.result.couponCode}.png`); toast('Coupon saved'); });
+  $('#btn-get-coupon').addEventListener('click', async () => {
+    const btn = $('#btn-get-coupon'); setBusy(btn, true, 'Preparing your coupon');
+    try { await downloadCoupon(); } catch (e) { /* still reveal on screen */ } finally { setBusy(btn, false); }
+    store.set(revealKey(S.result), '1');
+    sfx.tap(); haptic(12);
+    showCoupon(true, true);
+    toast('Coupon saved to your phone');
+  });
+  $('#btn-dl-coupon').addEventListener('click', async () => { await downloadCoupon(); toast('Coupon saved'); });
   $('#btn-share-wa').addEventListener('click', () => {
     const r = S.result;
     const text = `I just won ${r.offer}% off making charges at MK Jewels with Lucky Double Dice. Roll the golden dice for your own reward: ${inviteLink(r)}`;
@@ -412,11 +464,6 @@ function bindResultActions() {
   $$('[data-claim]').forEach((b) => b.addEventListener('click', () => {
     const online = b.dataset.claim === 'online';
     openClaim(online ? 'ONLINE' : 'STORE', online ? S.result.onlineToken : S.result.storeToken, true);
-  }));
-  $$('[data-qr-dl]').forEach((b) => b.addEventListener('click', async () => {
-    const online = b.dataset.qrDl === 'online';
-    const blob = await qrCardPng({ title: online ? 'Shop Online' : 'Visit Our Store', subtitle: online ? 'Scan to send your online enquiry' : 'Scan to choose your branch, date & time', url: claimUrl(online ? 'ONLINE' : 'STORE', online ? S.result.onlineToken : S.result.storeToken), r: S.result });
-    downloadBlob(blob, `MK-Jewels-${online ? 'Online' : 'Store-Visit'}-QR.png`); toast('QR saved');
   }));
 }
 
@@ -621,8 +668,7 @@ function confirmSheet(title, body, ok) {
 
 /* ================================================================ home, navigation */
 function paintOdds() {
-  const items = Object.entries(OFFERS).filter(([t]) => t !== '12').map(([t, o]) => `<li><b>${o}%</b><span>Total ${t}</span></li>`).join('');
-  $('#odds').innerHTML = `${items}<li class="jack"><b>${OFFERS[12]}%</b><span>Double six</span></li>`;
+  $('#odds').innerHTML = Object.entries(OFFERS).map(([t, o]) => `<li${t === '12' ? ' class="jack"' : ''}><span>${t === '12' ? '6 + 6' : t} →</span><b>${o}%</b></li>`).join('');
 }
 
 /** "View my reward" on the home screen when this device already has a player. */
