@@ -71,7 +71,7 @@ function makeStage(host, mode) {
 }
 function ensureHero() { if (!S.hero && S.stageMod) S.hero = makeStage($('#stage-welcome'), 'showcase'); }
 function disposeHero() { if (S.hero) { S.hero.dispose(); S.hero = null; } }
-function disposeGame() { if (S.game) { S.game.dispose(); S.game = null; } roll = null; S.rolling = false; shake.stop(); }
+function disposeGame() { if (document.getElementById('howto').open) document.getElementById('howto').close(); if (S.game) { S.game.dispose(); S.game = null; } roll = null; S.rolling = false; shake.stop(); }
 function ensureGame() {
   disposeGame();
   S.game = makeStage($('#stage-play'), 'game');
@@ -213,7 +213,6 @@ function buildRegistration() {
     Object.keys(fields).forEach((k) => { const m = fields[k](); setErr(k, m); if (m && !first) first = k; });
     if (first) { const el = $('input, button', fieldEl(first)); if (el) el.focus({ preventScroll: true }); fieldEl(first).scrollIntoView({ behavior: 'smooth', block: 'center' }); haptic(20); return; }
     // iOS only allows the motion prompt from inside a tap, so ask now (shake to roll on the next screen)
-    if (motionNeedsPermission() && motionPermission() === 'unknown') requestMotion().then(paintPlayHint);
     const phone = validatePhone(sel.value, $('#f-phone').value);
     const btn = $('#btn-register'); setBusy(btn, true, 'Please wait');
     $('#reg-error').textContent = '';
@@ -258,8 +257,33 @@ function enterPlay({ returning = false } = {}) {
     $('#play-greeting').textContent = S.firstName ? `Good luck, ${S.firstName}` : 'Your roll';
     $('#btn-roll').disabled = false;
     paintPlayHint();
+    showHowTo();
   }
 }
+
+/* ================================================================ how-to-roll popup (shown before every roll) */
+const howto = $('#howto');
+function showHowTo() {
+  const phone = motionSupported() && motionPermission() !== 'denied';
+  $$('[data-way="shake"]', howto).forEach((el) => { el.hidden = !phone; });
+  const touch = matchMedia('(pointer: coarse)').matches;
+  $('#howto-title').textContent = phone ? 'Two ways to throw' : 'How to throw';
+  $('#howto-drag-title').textContent = touch ? 'Hold and throw the dice' : 'Grab and throw the dice';
+  $('#howto-drag-text').textContent = touch ? 'Touch the dice, swipe up and let go. Or simply tap Roll.' : 'Drag the dice upward and let go. Or simply press Roll.';
+  if (S.game) S.game.setLocked(true);
+  try { howto.showModal(); } catch (e) { howto.setAttribute('open', ''); }
+}
+function closeHowTo() {
+  if (!howto.open) return;
+  try { howto.close(); } catch (e) { howto.open = false; }
+}
+howto.addEventListener('close', () => { if (S.game && !S.rolling) S.game.setLocked(false); paintPlayHint(); });
+$('#howto-go').addEventListener('click', () => {
+  sfx.unlockAudio(); sfx.tap(); haptic(10);
+  // this tap is the user gesture iOS needs before it allows motion access
+  if (motionNeedsPermission() && motionPermission() === 'unknown') requestMotion().then(() => paintPlayHint());
+  closeHowTo();
+});
 
 let roll = null;
 function startRoll(source, { velocity = null } = {}) {

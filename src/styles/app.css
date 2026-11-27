@@ -188,6 +188,26 @@ main { position: relative; z-index: 2; }
 .sheet-body li { margin-bottom: 8px; }
 .sheet-body h4 { font: 600 15px/1.4 var(--sans); color: var(--accent); margin: 18px 0 4px; }
 
+/* ---------- how-to-roll popup ---------- */
+.howto { width: min(420px, calc(100vw - 32px)); padding: 0; border: 0; border-radius: 24px; background: var(--surface); color: var(--text); box-shadow: 0 0 0 1px var(--line-strong), 0 30px 80px -20px rgba(0, 0, 0, .7); }
+.howto::backdrop { background: rgba(0, 0, 0, .65); }
+.howto[open] { animation: howIn .35s var(--ease) both; }
+@keyframes howIn { from { opacity: 0; transform: translateY(14px) scale(.97); } }
+.howto-card { display: grid; gap: 14px; padding: 26px 22px 22px; text-align: center; }
+.howto-card h2 { font-size: 32px; }
+.howto-ways { display: grid; gap: 4px; margin: 4px 0 8px; text-align: left; }
+.howto-way { display: grid; grid-template-columns: 60px 1fr; gap: 14px; align-items: center; padding: 14px; border-radius: 18px; background: var(--surface-2); border: 1px solid var(--line); }
+.howto-way b { display: block; font-size: 17px; font-weight: 600; color: var(--heading); }
+.howto-way small { display: block; margin-top: 2px; font-size: 14.5px; line-height: 1.45; color: var(--muted); }
+.howto-ic { width: 60px; height: 60px; border-radius: 16px; display: grid; place-items: center; color: var(--accent); background: var(--surface); box-shadow: 0 0 0 1px var(--line) inset; }
+.howto-ic svg { width: 38px; height: 38px; }
+.shake-ic svg { animation: phoneShake 1.6s ease-in-out infinite; transform-origin: 50% 60%; }
+@keyframes phoneShake { 0%, 45%, 100% { transform: rotate(0); } 5%, 15%, 25%, 35% { transform: rotate(-14deg) translateX(-2px); } 10%, 20%, 30%, 40% { transform: rotate(14deg) translateX(2px); } }
+.swipe-ic svg { animation: swipeUp 1.6s var(--ease) infinite; }
+@keyframes swipeUp { 0% { transform: translateY(8px); opacity: .45; } 30% { opacity: 1; } 70% { transform: translateY(-6px); opacity: 1; } 100% { transform: translateY(-10px); opacity: .45; } }
+.howto-or { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--faint); text-transform: uppercase; letter-spacing: .14em; }
+.howto-or::before, .howto-or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
 /* ---------- fallback dice (no WebGL) ---------- */
 .fb-stage { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 46px; perspective: 900px; }
 .fb-die { width: 74px; height: 74px; position: relative; transform-style: preserve-3d; transition: transform 1.9s cubic-bezier(.2, .9, .25, 1.03); }
