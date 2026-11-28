@@ -4,10 +4,11 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "node tests/backend.test.mjs && node tests/physics.test.mjs",
+    "test": "node tests/backend.test.mjs && node tests/scale.test.mjs && node tests/physics.test.mjs",
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "preview:vercel": "vite preview --config dev/preview-headers.config.js"
   },
   "keywords": [],
   "author": "",

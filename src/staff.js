@@ -3,6 +3,9 @@ import './styles/staff.css';
 import { api } from './api.js';
 import { PREVIEW } from './config.js';
 import { $, $$, esc, toast, prettyDate, time12 } from './lib/ui.js';
+import { installErrorReporting } from './lib/errors.js';
+
+installErrorReporting('staff');
 
 const KEY = 'mk_staff_session';
 let session = (() => { try { return JSON.parse(sessionStorage.getItem(KEY)); } catch (e) { return null; } })();

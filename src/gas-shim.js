@@ -70,11 +70,42 @@ function makeSpreadsheet(state, save) {
   const strip = v => (typeof v === 'string' && v.startsWith("'") ? v.slice(1) : v);
   function makeSheet(name) {
     const rows = () => state.sheets[name];
-    const ensure = (r, c) => { const d = rows(); while (d.length < r) d.push([]); d.forEach(row => { while (row.length < c) row.push(''); }); };
+    // Pads only the rows inside the range (padding every row made each single-row read O(sheet size)).
+    const ensure = (r, c, nr) => {
+      const d = rows(); while (d.length < r + nr - 1) d.push([]);
+      for (let i = r - 1; i < r - 1 + nr; i++) { const row = d[i]; while (row.length < c) row.push(''); }
+    };
     const range = (r, c, nr = 1, nc = 1) => {
       const api = {
-        getValues() { ensure(r + nr - 1, c + nc - 1); return rows().slice(r - 1, r - 1 + nr).map(row => row.slice(c - 1, c - 1 + nc)); },
-        setValues(vals) { ensure(r + nr - 1, c + nc - 1); vals.forEach((row, i) => row.forEach((v, j) => { rows()[r - 1 + i][c - 1 + j] = strip(v); })); save(); return api; },
+        getRow: () => r, getColumn: () => c, getNumRows: () => nr, getNumColumns: () => nc,
+        getValues() { ensure(r, c + nc - 1, nr); return rows().slice(r - 1, r - 1 + nr).map(row => row.slice(c - 1, c - 1 + nc)); },
+        getValue() { return api.getValues()[0][0]; },
+        setValues(vals) { ensure(r, c + nc - 1, nr); vals.forEach((row, i) => row.forEach((v, j) => { rows()[r - 1 + i][c - 1 + j] = strip(v); })); save(); return api; },
+        clearContent() { const d = rows(); for (let i = r - 1; i < Math.min(d.length, r - 1 + nr); i++) for (let j = c - 1; j < c - 1 + nc; j++) if (j < d[i].length) d[i][j] = ''; save(); return api; },
+        // Range.createTextFinder: like Sheets, case-insensitive and substring by default; compares display text.
+        createTextFinder(text) {
+          const opt = { entire: false, matchCase: false };
+          const finder = {
+            matchEntireCell(b) { opt.entire = !!b; return finder; },
+            matchCase(b) { opt.matchCase = !!b; return finder; },
+            findAll() {
+              const d = rows(), want = opt.matchCase ? String(text) : String(text).toLowerCase(), out = [];
+              if (!want) return out;
+              for (let i = r - 1; i < Math.min(d.length, r - 1 + nr); i++) {
+                const row = d[i];
+                for (let j = c - 1; j < c - 1 + nc; j++) {
+                  const raw = row[j];
+                  if (raw === '' || raw == null) continue;
+                  const v = opt.matchCase ? String(raw) : String(raw).toLowerCase();
+                  if (opt.entire ? v === want : v.includes(want)) out.push(range(i + 1, j + 1, 1, 1));
+                }
+              }
+              return out;
+            },
+            findNext() { return finder.findAll()[0] || null; }
+          };
+          return finder;
+        },
         setFormula(f) { return api.setValues([[f]]); },
         setFontWeight() { return api; }, setBackground() { return api; }, setFontColor() { return api; },
         setNumberFormat() { return api; }, setFontSize() { return api; }
@@ -86,6 +117,7 @@ function makeSpreadsheet(state, save) {
       getLastRow() { const d = rows(); let n = d.length; while (n > 0 && d[n - 1].every(v => v === '' || v == null)) n--; return n; },
       getLastColumn() { return rows().reduce((m, r) => { let n = r.length; while (n > 0 && (r[n - 1] === '' || r[n - 1] == null)) n--; return Math.max(m, n); }, 0); },
       getMaxRows() { return Math.max(1000, rows().length); },
+      getMaxColumns() { return Math.max(26, this.getLastColumn()); },
       getRange: range,
       appendRow(arr) { const n = this.getLastRow(); rows().splice(n, 0, arr.map(strip)); save(); return this; },
       setFrozenRows() {}, setColumnWidth() {}, clear() { state.sheets[name] = []; save(); }
@@ -120,7 +152,14 @@ export function createGasRuntime(source, opts = {}) {
   };
   const SpreadsheetApp = { getActiveSpreadsheet: () => ss, flush() {} };
   const LockService = { getScriptLock: () => ({ tryLock: () => true, waitLock() {}, releaseLock() {} }) };
-  const PropertiesService = { getScriptProperties: () => ({ getProperty: k => state.props[k] ?? null, setProperty(k, v) { state.props[k] = String(v); save(); } }) };
+  const PropertiesService = {
+    getScriptProperties: () => ({
+      getProperty: k => state.props[k] ?? null,
+      setProperty(k, v) { state.props[k] = String(v); save(); },
+      deleteProperty(k) { delete state.props[k]; save(); },
+      getKeys: () => Object.keys(state.props)
+    })
+  };
   const now = () => (opts.now ? opts.now() : Date.now());
   const CacheService = {
     getScriptCache: () => ({
@@ -133,7 +172,8 @@ export function createGasRuntime(source, opts = {}) {
 
   // eslint-disable-next-line no-new-func
   const factory = new Function('SpreadsheetApp', 'LockService', 'PropertiesService', 'CacheService', 'Utilities', 'ContentService', 'console',
-    source + '\n;return { handleRequest_: handleRequest_, setup: setup, CONFIG: CONFIG, offerFor_: offerFor_, secureDie_: secureDie_ };');
+    source + '\n;return { handleRequest_: handleRequest_, setup: setup, CONFIG: CONFIG, offerFor_: offerFor_, secureDie_: secureDie_,' +
+    ' doGet: doGet, resetForLaunch: typeof resetForLaunch === "function" ? resetForLaunch : null, VERSION: typeof VERSION === "string" ? VERSION : null };');
   const api = factory(SpreadsheetApp, LockService, PropertiesService, CacheService, Utilities, ContentService, consoleShim);
   return { ...api, state };
 }

@@ -190,5 +190,53 @@ const actions = sheet('Audit_Log').slice(1).map(r => r[2]);
 ['REGISTER', 'GAME_COMPLETED', 'ONLINE_ENQUIRY_SUBMITTED', 'APPOINTMENT_BOOKED', 'APPOINTMENT_RESCHEDULED', 'APPOINTMENT_CANCELLED', 'STAFF_LOOKUP', 'CUSTOMER_VISITED', 'COUPON_REDEEMED', 'STAFF_LOGIN_FAILED']
   .forEach(a => ok(actions.includes(a), 'audit has ' + a));
 
+section('Health check');
+const hc = JSON.parse(rt.doGet().getContent());
+ok(hc.ok === true && hc.service === rt.CONFIG.CAMPAIGN_NAME && typeof hc.campaignActive === 'boolean' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(hc.time), 'doGet returns ok/service/campaignActive/time');
+ok(hc.version === rt.VERSION && /^\d{4}\.\d{2}\.\d{2}-\d+$/.test(hc.version), 'doGet reports VERSION ' + hc.version);
+
+section('Client error reporting');
+const auditLen = () => sheet('Audit_Log').length;
+const before = auditLen();
+const longMsg = 'TypeError: x is undefined <script>' + 'y'.repeat(600);
+ok(call('logClientError', { sid: 'pageAAAA1111', message: longMsg, page: 'customer', source: 'https://x/assets/main.js', line: 12 }).ok, 'client error accepted');
+const last = sheet('Audit_Log')[auditLen() - 1];
+ok(last[2] === 'CLIENT_ERROR' && last[1] === 'CLIENT' && last[3] === 'sid:pageAAAA1111', 'written to Audit_Log as CLIENT_ERROR');
+const msgPart = last[4].split(' || ')[0];
+ok(msgPart.length === 300 && !last[4].includes('<'), 'message trimmed to 300 characters and HTML stripped');
+ok(call('logClientError', { session: reg.session, message: 'boom' }).ok && sheet('Audit_Log')[auditLen() - 1][3] === 'MKC-100001', 'valid customer session is used as the reference');
+let errLimited = false;
+for (let i = 0; i < 8; i++) if (call('logClientError', { sid: 'pageBBBB2222', message: 'loop ' + i }).code === 'RATE_LIMIT') errLimited = true;
+ok(errLimited && auditLen() - before === 2 + 5, 'rate-limited per session (5 per 10 minutes)');
+ok(call('logClientError', { session: 'MKC-1.forged', sid: '<bad>', message: 'x' }).ok, 'forged session / bad sid still logs as anonymous');
+
+section('resetForLaunch');
+const secretBefore = rt.state.props.SECRET;
+const staffBefore = JSON.stringify(sheet('Staff'));
+let refused = '';
+try { rt.resetForLaunch(); } catch (e) { refused = e.message; }
+ok(/CONFIRM_RESET/.test(refused) && sheet('Participants').length > 2, 'refuses without CONFIRM_RESET = YES (data untouched)');
+rt.state.props.CONFIRM_RESET = 'no';
+try { rt.resetForLaunch(); refused = ''; } catch (e) { refused = e.message; }
+ok(refused && sheet('Participants').length > 2, 'refuses unless the value is exactly YES');
+rt.state.props.CONFIRM_RESET = 'YES';
+const msg = rt.resetForLaunch();
+ok(/Reset complete/.test(msg), 'reset runs with CONFIRM_RESET = YES');
+const dataRows = (n) => sheet(n).slice(1).filter((r) => r.some((v) => v !== '' && v != null)).length;
+['Participants', 'Online_Claims', 'Store_Visits', 'Redemptions'].forEach((n) => ok(dataRows(n) === 0 && sheet(n)[0][0], n + ' emptied, headers kept'));
+ok(dataRows('Audit_Log') === 1 && sheet('Audit_Log')[1][2] === 'RESET_FOR_LAUNCH', 'Audit_Log emptied except the reset record');
+ok(rt.state.props.SECRET === secretBefore, 'SECRET untouched');
+ok(JSON.stringify(sheet('Staff')) === staffBefore, 'Staff tab untouched');
+ok(!('CONFIRM_RESET' in rt.state.props), 'CONFIRM_RESET deleted after running');
+ok(!Object.keys(rt.state.props).some((k) => k.startsWith('SEQ_')), 'ID counters reset');
+let again2 = '';
+try { rt.resetForLaunch(); } catch (e) { again2 = e.message; }
+ok(/CONFIRM_RESET/.test(again2), 'cannot run twice without setting CONFIRM_RESET again');
+const fresh = call('register', { ...base, phone: '98111 22233', name: 'First Launch' });
+ok(fresh.ok && sheet('Participants')[1][0] === 'MKC-100001', 'first player after reset gets MKC-100001 in row 2');
+const fr1 = call('roll', { session: fresh.session });
+ok(/-000001$/.test(fr1.result.couponCode), 'coupon counter restarts at 000001');
+ok(call('register', base).ok, 'a number that played before the reset can play again');
+
 console.log(`\n${failed ? '✗' : '✓'} ${passed} checks passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

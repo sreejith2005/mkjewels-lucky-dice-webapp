@@ -14,11 +14,15 @@ This is a mobile-first campaign web app for MK Jewels (luxury gold and diamond j
 ```bash
 npm install
 npm run dev            # http://localhost:5173 — PREVIEW MODE (no backend needed, see below)
-npm test               # backend business rules (173 checks) + physics planner. Must pass.
-npm run build          # production build → dist/ (needs VITE_API_URL in .env)
+npm test               # backend business rules (205 checks) + 20,000-participant scale test (27 checks, prints timings) + physics planner. Must pass.
+npm run build          # production build → dist/ (needs VITE_API_URL in .env; fails on Vercel production without it)
 npm run preview        # serve dist/
+npm run preview:vercel # serve dist/ with the vercel.json headers (CSP, Permissions-Policy, caching) applied locally
 
-# Browser checks (Python Playwright; dev server must be running)
+# Benchmark another backend version with the scale test:
+CODE_GS=path/to/old/Code.gs node tests/scale.test.mjs
+
+# Browser checks (Python Playwright; dev server must be running). NOTE: these two scripts are not currently in the repo.
 python3 tests/e2e.py 390 844 m      # full mobile journey + staff redemption; screenshots → $SHOTS (default /tmp)
 python3 tests/e2e.py 1440 900 d     # desktop
 python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the visible top faces match
@@ -28,11 +32,16 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
 ## Architecture
 | Path | Role |
 |---|---|
-| `backend/Code.gs` | **The only backend.** Google Apps Script bound to the Sheet. It holds `CONFIG` (campaign, offer table, branches, slots), all API actions, sheet schema (`SHEETS`), `setup()` and the Dashboard. |
+| `backend/Code.gs` | **The only backend.** Google Apps Script bound to the Sheet. It holds `VERSION`, `CONFIG` (campaign, offer table, branches, slots), all API actions, sheet schema (`SHEETS`), `setup()`, `resetForLaunch()` and the Dashboard. `doGet` is the health check (`{ok, service, version, campaignActive, time}`). |
 | `src/gas-shim.js` | Apps Script emulator. It runs `Code.gs` **unchanged** in Node (tests) and in the browser (preview mode). |
 | `src/preview-backend.js` | Preview mode: runs `Code.gs` on localStorage (`mk_preview_db_v2`). Dead-code-eliminated when `VITE_API_URL` is set. |
 | `src/api.js` | `api(action, payload)`. POST with `text/plain` (avoids CORS preflight) to the Apps Script `/exec` URL, falling back to preview. It throws `ApiError{message, code}`. |
 | `src/config.js` | `API_URL`, `PUBLIC_URL`, `claimUrl(kind, token)`, brand links. |
+| `src/lib/errors.js` | `installErrorReporting(page, getSession)`: production-only `window.onerror` / `unhandledrejection` → `logClientError`, max 3 per page load. Installed at the top of `main.js` and `staff.js`. |
+| `vercel.json` | Vercel build settings, security headers (CSP, Permissions-Policy, …) and caching. |
+| `vite.config.js` | Build. Fails when `VERCEL_ENV=production` and `VITE_API_URL` is empty, and when an inline `<script>` in the built HTML has no matching `sha256-…` in the `vercel.json` CSP. |
+| `dev/preview-headers.config.js` | `npm run preview:vercel`: `vite preview` plus the `vercel.json` headers. |
+| `tests/scale.test.mjs` | Builds 20,000 participants (plus claims and bookings) and checks register, roll, restore, resolve, referrer and staff lookup/visit/redeem; prints per-action timings. |
 | `index.html` + `src/main.js` | Customer SPA. Views are `<section data-view>`: welcome → register → play (states `ready` / `rolling` / `won`) → online / store / message. The router reads `?c=online\|store&t=TOKEN`. |
 | `team-mk7q.html` + `src/staff.js` | Staff portal (unlisted URL `/team-mk7q.html`, never linked from the customer app): login, camera scan, search, mark visited, redeem. |
 | `src/dice/physics.js` | cannon-es throw planner (pure, Node-testable), tuned to the approved motion study `MK Jewels – Lucky Double Dice.html` (solid rails, ceiling, G=32). Frames are a flat `Float32Array` (`STRIDE` 14 per frame at `HZ` 120). |
@@ -46,7 +55,7 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
 | `dev/stage.html` | Dice sandbox: `?mode=idle\|result\|roll`, plus `window.runCombos()` and `window.readFaces()`. |
 
 ### API actions (`Code.gs` → `ACTIONS`)
-- **Public:** `config`, `register`, `restore`, `roll`, `resolve`, `submitOnline`, `availability`, `bookStore`, `cancelStore`.
+- **Public:** `config`, `register`, `restore`, `roll`, `resolve`, `submitOnline`, `availability`, `bookStore`, `cancelStore`, `referrer`, `logClientError` (writes `CLIENT_ERROR` to `Audit_Log`; rate-limited to 5 per session/page id per 10 min and 300 in total per 10 min; message trimmed to 300 characters).
 - **Staff** (need `staffToken`): `staffLogin`, `staffLookup`, `staffVisit`, `staffRedeem`.
 - **Response shape:** `{ok:true, ...}` or `{ok:false, error, code}`. User-facing errors come from `fail_(message, CODE)`; the frontend shows `message` and branches on `code` (`NO_SESSION`, `BAD_TOKEN`, `WRONG_QR`, `SLOT_FULL`, `REDEEMED`, `EXPIRED`, `STAFF_AUTH`, `RATE_LIMIT`, …).
 
@@ -63,11 +72,16 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
 9. **Never show success before the backend confirms.**
 
 ## Changing the backend (`Code.gs`)
+- **Bump `VERSION`** (top of `Code.gs`, format `YYYY.MM.DD-n`) with every backend change. The health check (GET the web-app URL) shows which version is live.
 - **Plain Apps Script (V8). No imports or npm.** It must also run inside `gas-shim.js`. If you call any Apps Script API not already emulated, add it to the shim, or tests and preview mode break. Emulated APIs:
   - `SpreadsheetApp.getActiveSpreadsheet` / `flush`
-  - Sheet: `getSheetByName`, `insertSheet`, `getLastRow`, `getLastColumn`, `getMaxRows`, `getRange(r,c,nr,nc).getValues/setValues/…format no-ops`, `appendRow`, `clear`
-  - `LockService`, `PropertiesService`, `CacheService`
+  - Sheet: `getSheetByName`, `insertSheet`, `getName`, `getLastRow`, `getLastColumn`, `getMaxRows`, `getMaxColumns`, `appendRow`, `clear`
+  - Range: `getRange(r,c,nr,nc)` → `getValues`/`getValue`/`setValues`/`clearContent`/`getRow`/`getColumn`/format no-ops, and `createTextFinder(text)` → `matchCase`, `matchEntireCell`, `findAll()` (ranges with `getRow()`), `findNext()`. Like Sheets, the finder is case-insensitive and matches substrings unless told otherwise.
+  - `LockService`, `PropertiesService` (`getProperty`, `setProperty`, `deleteProperty`, `getKeys`), `CacheService`
   - `Utilities.getUuid`, `computeDigest`, `computeHmacSha256Signature`, `base64EncodeWebSafe/DecodeWebSafe`, `newBlob`
+- **Scale (20k+ rows): never read a whole data sheet on a request path.** Look rows up with `findRows_(def, col, value)` / `findBy_` / `participantById_` / `participantByCoupon_` / `inCampaign_`. These run a `TextFinder` (exact cell, case-sensitive) on one column, then read only the matched rows. Searchable columns: `Normalized_Mobile`, `Customer_ID`, `Coupon_Code`, `Referral_Code`, `*_Token_Hash`, `Appointment_ID`. Use `readTable_()` only for the small `Staff` sheet and for admin jobs run by hand (`setup`, `backfillReferralCodes_`). When a scan is unavoidable (slot capacity), `readColumns_()` reads just the columns needed. Headers are cached per execution (`headersOf_`).
+- **Locking pattern:** do validation and read-only checks (and fail fast) **outside** `withLock_`, then **re-read and re-check inside** the lock before writing. Build response extras (`buildResult_`, `staffRecord_`) after the lock is released.
+- **`resetForLaunch()`** (run by hand) clears the data rows in Participants, Online_Claims, Store_Visits, Redemptions and Audit_Log, and deletes the `SEQ_*` counters. It never touches `Staff` or `SECRET`. It refuses to run unless Script Property `CONFIRM_RESET` = `YES`, and always deletes that property. Keep these guarantees (the tests enforce them).
 - **Dates and times:** IST via `istParts_()`, `todayStr_()`, `nowStr_()`. Do not use `Utilities.formatDate` (not emulated) or the local timezone.
 - **Cell storage:** all writes go through `writeRow_`/`appendRow_` → `cell_()`, which prefixes `'` to values starting with a digit, `+`, `-`, `=` or `@`, so Sheets never converts phones, IDs or dates. Rows are read as strings keyed by header name via `readTable_()`.
 - **Free text:** pass it through `cleanText_()` to neutralise formulas and HTML. Validate choices with `oneOf_` / `cleanList_` against `CONFIG` lists.
@@ -84,6 +98,14 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
   - Reuse `.btn-gold`, `.btn-ghost`, `.btn-quiet`, `.card`, `.field` / `.input`, `.chips`, `.cal`, `.eyebrow`, `.display`, `.gold-text`.
   - Fonts are self-hosted via `@fontsource`; no Google Fonts CDN.
 - **Brand tone:** quiet luxury. No neon, casino styling, emoji clutter, gradient text (only the big offer number), ornaments, numbered labels, animated backgrounds or exclamation-heavy copy. Serif headings, sentence-case buttons, short copy.
+- **Security headers (`vercel.json`):**
+  - The CSP allows scripts only from `'self'` plus the sha256 of the inline theme script in `index.html`. If you change or add an inline script, update the hash; the build fails and prints the new one.
+  - Any new external origin the browser fetches from must be added to `connect-src`. Today that is `script.google.com`, `script.googleusercontent.com`, and `api.postalpincode.in` (PIN-code autofill).
+  - Workers come from `'self'` and `blob:` (qr-scanner).
+  - `camera`, `accelerometer` and `gyroscope` are allowed for `self` only (staff scanner, shake-to-roll).
+  - Check with `npm run preview:vercel` and watch for `securitypolicyviolation` and console errors.
+- **Caching:** `/assets/*` and `/film/*` are cached for a year as immutable; `index.html` and `team-mk7q.html` are `no-cache`. **Files in `public/film/` are not content-hashed, so give a replaced film a new file name.**
+- **Error reporting:** keep `installErrorReporting` in `main.js` / `staff.js`. It only runs in production builds with `VITE_API_URL`.
 - **Performance:** no `backdrop-filter`, `mix-blend-mode` overlays, animated blur, or infinite decorative animations. Don't animate the stage size (it rebuilds the tray).
 - **Mobile first:**
   - Test at 360–430 px width first, then ≥1024 px.
@@ -121,14 +143,14 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
 When `VITE_API_URL` is empty, data stays in the browser (no ribbon is shown to customers).
 - Staff demo logins: `ADMIN01/246810`, `STORE01/135790` (Bandra), `ONLINE01/112233`.
 - Reset with `localStorage.clear()`.
-- Never ship a production build without `VITE_API_URL`.
+- Never ship a production build without `VITE_API_URL`. `vite.config.js` enforces this on Vercel (`VERCEL_ENV=production`).
 
 ## Before you finish any change
-1. `npm test` passes.
+1. `npm test` passes (backend, scale and physics).
 2. For UI changes: run `python3 tests/e2e.py 390 844 m` (and the desktop run), then **look at the screenshots**.
 3. For dice changes: `python3 tests/dice_faces.py` reports 0 mismatches.
 4. `npm run build` succeeds with no new large chunks. `three` ≈ 128 KB gzip is expected.
-5. If `Code.gs` changed: tell the user to redeploy a new Apps Script version, and to add any new sheet headers by hand.
+5. If `Code.gs` changed: bump `VERSION`. Tell the user to redeploy a new Apps Script version, check that the health-check URL shows the new version, and add any new sheet headers by hand.
 6. Update `README.md` if setup, config or behaviour changed, and update this file if any rule above changed.
 
 ## Pending / out of scope (ask before building)

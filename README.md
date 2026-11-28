@@ -6,7 +6,7 @@ A mobile-first campaign web app. Customers register, roll two physically simulat
 |---|---|---|
 | Customer site + staff portal | Vite, vanilla JS, Three.js (PBR rendering), cannon-es (physics) | Fast first load, 60 fps on phones, works in the WhatsApp/Instagram in-app browsers |
 | Backend + database | Google Apps Script bound to a Google Sheet | Data is in Sheets for your team; `LockService` makes "one roll per phone" and "one redemption per coupon" race-proof; no server bill |
-| Hosting | Any static host (Vercel, Netlify, Cloudflare Pages, Firebase Hosting) | Free and fast, with HTTPS by default |
+| Hosting | Vercel (builds from GitHub `main`; settings and security headers in `vercel.json`) | Free and fast, with HTTPS by default |
 
 ---
 
@@ -26,15 +26,31 @@ A mobile-first campaign web app. Customers register, roll two physically simulat
    - Who has access: **Anyone**
    Copy the **Web app URL** (it ends in `/exec`).
 
-> Every time you change `Code.gs`, use **Deploy → Manage deployments → Edit → New version** so the URL stays the same.
+7. **Health check:** open the Web app URL in a browser. You should see something like
+   `{"ok":true,"service":"MK JEWELS LUCKY DOUBLE DICE","version":"2026.11.28-1","campaignActive":true,"time":"2026-11-28 14:05:00"}`.
+   `version` is the `VERSION` constant at the top of `Code.gs`, so you can confirm which backend is live. `campaignActive` is `false` outside the campaign dates or when `CAMPAIGN_ACTIVE` is off.
+
+> Every time you change `Code.gs`, use **Deploy → Manage deployments → Edit → New version** so the URL stays the same. Then reload the health-check URL and check that `version` changed.
+
+### Reset before launch (`resetForLaunch`)
+Use this once, after testing and just before going live, to wipe the test data.
+1. In Apps Script, open **Project Settings → Script Properties → Add script property**. Name it `CONFIRM_RESET` and set the value to `YES`. Save.
+2. In the editor, choose the function **`resetForLaunch`** and click **Run**.
+
+It deletes every data row (the header rows stay) in `Participants`, `Online_Claims`, `Store_Visits`, `Redemptions` and `Audit_Log`, and resets the ID counters, so the first player is `MKC-100001` and the first coupon ends in `000001`. Afterwards `Audit_Log` contains a single `RESET_FOR_LAUNCH` row.
+It **keeps the `Staff` tab** and **never touches the `SECRET` property**, so staff logins keep working.
+It refuses to run unless `CONFIRM_RESET` is exactly `YES`, and it deletes `CONFIRM_RESET` when it finishes (even if it failed). To run it again, you must set the property again.
+
+**Scale:** request paths never read whole sheets. They find single rows with Sheets' TextFinder on one column (mobile, customer ID, coupon, referral code, QR hash), so speed stays flat as `Participants` grows. `npm test` includes a 20,000-participant test.
 
 ## 2. Build and host the website
 
 ```bash
 npm install
 cp .env.example .env      # then fill in the two values
-npm test                  # 173 backend checks + physics planner checks
+npm test                  # 205 backend checks + 27 checks at 20,000 participants + physics planner checks
 npm run build             # outputs ./dist
+npm run preview:vercel    # optional: serve dist/ locally with the production security headers
 ```
 
 `.env`
@@ -43,11 +59,34 @@ VITE_API_URL=https://script.google.com/macros/s/XXXXXXXX/exec
 VITE_PUBLIC_URL=https://luckydice.mkjewels.in
 ```
 
-Upload `dist/` to any static host. Recommended: point a subdomain such as `luckydice.mkjewels.in` at it. Then:
+### Deploy on Vercel
+1. In Vercel, **Add New → Project** and import the GitHub repository. `vercel.json` already sets the framework (Vite), `npm run build` and the `dist` output folder.
+2. Go to **Settings → Environment Variables** and add both for the **Production** environment:
+   - `VITE_API_URL` = the Apps Script Web app URL (ends in `/exec`)
+   - `VITE_PUBLIC_URL` = the public site address, for example `https://luckydice.mkjewels.in` (used in QR codes and share links)
+
+   A production build **fails on purpose** if `VITE_API_URL` is missing, so the live site can never fall back to preview mode. Leave both unset for Preview deployments if you want those to run in preview mode.
+3. Every push to `main` deploys to production. After changing environment variables, redeploy (**Deployments → … → Redeploy**).
+4. Go to **Settings → Domains** and add `luckydice.mkjewels.in`, then create the DNS record Vercel shows.
+5. Check that it works:
+   - Open the site and complete one test roll.
+   - Open the staff portal and sign in.
+   - Open the health-check URL (the `VITE_API_URL` value).
+
+**Security headers** (`vercel.json`):
+- A Content-Security-Policy allows scripts only from the site itself, and network calls only to the site, `script.google.com`, `script.googleusercontent.com` and `api.postalpincode.in` (PIN-code autofill).
+- The camera is allowed only for the site itself; motion sensors are allowed for shake-to-roll.
+- `frame-ancestors 'none'` (and `X-Frame-Options: DENY`) blocks framing.
+- `X-Content-Type-Options: nosniff` and `Referrer-Policy: strict-origin-when-cross-origin` are set.
+- `/assets/*` and `/film/*` are cached for a year; the two HTML pages are always revalidated. If you replace the film, give the new file a new name.
+
+**Error reports:** in production, browser errors are sent to the backend, at most 3 per page load. They appear in `Audit_Log` as `CLIENT_ERROR` rows (message trimmed to 300 characters; rate-limited).
+
+Then:
 - Customer link for the invitation message: `https://luckydice.mkjewels.in/?src=whatsapp` (the `src` value is saved as the campaign source)
 - Staff portal: `https://luckydice.mkjewels.in/team-mk7q.html` (unlisted; share it only with staff and bookmark it on store and sales-team phones)
 
-**Preview mode:** if `VITE_API_URL` is empty (for example during `npm run dev`), the app runs the real `Code.gs` inside the browser against local storage, and a ribbon says "Preview mode". Preview staff logins are `ADMIN01 / 246810`, `STORE01 / 135790` and `ONLINE01 / 112233`. Production builds never include this.
+**Preview mode:** if `VITE_API_URL` is empty (for example during `npm run dev`), the app runs the real `Code.gs` inside the browser against local storage. The customer site shows no ribbon. The staff portal shows a small bar with the demo logins: `ADMIN01 / 246810`, `STORE01 / 135790` and `ONLINE01 / 112233`. Builds with `VITE_API_URL` never include preview mode, and Vercel production builds refuse to run without it. Reset preview data with `localStorage.clear()`.
 
 ---
 
@@ -98,7 +137,9 @@ index.html, src/main.js    Customer experience
 team-mk7q.html, src/staff.js   Staff scanner, check-in and redemption
 src/dice/                  3D stage, physics planner, procedural gold & velvet textures, no-WebGL fallback
 src/lib/                   audio synthesis, haptics, QR, coupon PNGs, calendar, phone validation
-tests/                     backend business-rule tests, physics tests
+tests/                     backend business-rule tests, 20k-participant scale test, physics tests
+vercel.json                Vercel build, security headers and caching
+dev/                       local preview with the Vercel headers (npm run preview:vercel)
 ```
 
 ## Invites and referrals

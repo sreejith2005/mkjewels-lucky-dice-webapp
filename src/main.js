@@ -8,6 +8,7 @@ import { couponPng, downloadBlob } from './lib/keepsakes.js';
 import * as sfx from './lib/audio.js';
 import { haptic, hapticPattern } from './lib/haptics.js';
 import { confetti } from './lib/fx.js';
+import { installErrorReporting } from './lib/errors.js';
 import { motionSupported, motionNeedsPermission, motionPermission, requestMotion, shakeDetector } from './lib/motion.js';
 
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -30,6 +31,7 @@ const DEFAULT_CONFIG = {
 const OFFERS = { 2: 20, 3: 22, 4: 24, 5: 26, 6: 28, 7: 30, 8: 33, 9: 36, 10: 40, 11: 45, 12: 50 };
 
 const S = { config: DEFAULT_CONFIG, session: store.get(SESSION_KEY), firstName: '', result: null, claim: null, game: null, fun: false, stageMod: null, ref: '' };
+installErrorReporting('customer', () => S.session);
 
 /* ================================================================ theme */
 const themeBtn = $('.theme-toggle');

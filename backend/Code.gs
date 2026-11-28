@@ -12,6 +12,9 @@
  */
 
 /* =========================== CONFIGURATION =========================== */
+// Bump on every backend change (shown by the health check: GET <web-app URL>).
+const VERSION = '2026.11.28-1';
+
 const CONFIG = {
   CAMPAIGN_ID: 'LDD-2026',
   CAMPAIGN_NAME: 'MK JEWELS LUCKY DOUBLE DICE',
@@ -58,8 +61,9 @@ const SHEETS = {
 };
 
 /* =========================== HTTP ENTRY POINTS =========================== */
+/** Health check: open the web-app URL in a browser. */
 function doGet() {
-  return json_({ ok: true, service: CONFIG.CAMPAIGN_NAME, time: nowStr_() });
+  return json_({ ok: true, service: CONFIG.CAMPAIGN_NAME, version: VERSION, campaignActive: campaignOpen_(), time: nowStr_() });
 }
 
 function doPost(e) {
@@ -75,7 +79,7 @@ function json_(obj) {
 const ACTIONS = {
   config: actConfig_, register: actRegister_, restore: actRestore_, roll: actRoll_,
   resolve: actResolve_, submitOnline: actSubmitOnline_, availability: actAvailability_,
-  bookStore: actBookStore_, cancelStore: actCancelStore_, referrer: actReferrer_,
+  bookStore: actBookStore_, cancelStore: actCancelStore_, referrer: actReferrer_, logClientError: actLogClientError_,
   staffLogin: actStaffLogin_, staffLookup: actStaffLookup_, staffVisit: actStaffVisit_, staffRedeem: actStaffRedeem_
 };
 
@@ -114,18 +118,29 @@ function actRegister_(p) {
   const v = validateRegistration_(p);
   rateLimit_('reg:' + v.normalized, 8, 600, 'Too many attempts. Please wait a few minutes and try again.');
 
+  // Outside the lock: fast rejection of numbers that already played, and the referrer lookup (read-only).
+  const pre = inCampaign_(findRows_(SHEETS.PARTICIPANTS, 'Normalized_Mobile', v.normalized));
+  if (pre && pre.Game_ID) {
+    audit_('CUSTOMER', 'REGISTER_BLOCKED_ALREADY_PLAYED', pre.Customer_ID, '');
+    fail_('This mobile number has already played. Please use a different mobile number.', 'ALREADY_PLAYED');
+  }
+  // Who invited this player (referral link ?ref=CODE). Self-referrals and unknown codes are ignored.
+  let referrer = v.ref ? inCampaign_(findRows_(SHEETS.PARTICIPANTS, 'Referral_Code', v.ref)) : null;
+  if (referrer && referrer.Normalized_Mobile === v.normalized) referrer = null;
+
   return withLock_(function () {
     const sh = sheet_(SHEETS.PARTICIPANTS);
-    const table = readTable_(sh);
-    const idx = table.findIndex(function (r) { return r.Normalized_Mobile === v.normalized && r.Campaign_ID === CONFIG.CAMPAIGN_ID; });
+    // Re-check inside the lock: another request may have registered or rolled this number meanwhile.
+    const matches = findRows_(SHEETS.PARTICIPANTS, 'Normalized_Mobile', v.normalized);
+    const existing = inCampaign_(matches);
     const now = nowStr_();
     let row, isNew = false;
-    if (idx >= 0 && table[idx].Game_ID) {
-      audit_('CUSTOMER', 'REGISTER_BLOCKED_ALREADY_PLAYED', table[idx].Customer_ID, '');
+    if (existing && existing.Game_ID) {
+      audit_('CUSTOMER', 'REGISTER_BLOCKED_ALREADY_PLAYED', existing.Customer_ID, '');
       fail_('This mobile number has already played. Please use a different mobile number.', 'ALREADY_PLAYED');
     }
-    if (idx >= 0) {
-      row = table[idx];
+    if (existing) {
+      row = existing;
       // Update permitted details, keep history (IDs, game, coupon) untouched.
       Object.assign(row, {
         Updated_At: now, Full_Name: v.name, City: v.city, PINCODE: v.pincode, State: v.state || row.State,
@@ -137,7 +152,7 @@ function actRegister_(p) {
     } else {
       isNew = true;
       // Reuse the Customer_ID if this mobile exists from an earlier campaign.
-      const prior = table.find(function (r) { return r.Normalized_Mobile === v.normalized; });
+      const prior = matches[0];
       const customerId = prior ? prior.Customer_ID : 'MKC-' + nextSeq_('CUSTOMER', CONFIG.CUSTOMER_START);
       row = {
         Customer_ID: customerId, Registered_At: now, Updated_At: now, Full_Name: v.name, Country_Code: '+' + v.cc,
@@ -146,13 +161,9 @@ function actRegister_(p) {
         Campaign_ID: CONFIG.CAMPAIGN_ID, Source: v.source || CONFIG.SOURCE,
         Referral_Code: referralCode_(customerId)
       };
-      // Who invited this player (referral link ?ref=CODE). Self-referrals and unknown codes are ignored.
-      if (v.ref) {
-        const referrer = table.find(function (r) { return r.Campaign_ID === CONFIG.CAMPAIGN_ID && referralCodeOf_(r) === v.ref; });
-        if (referrer && referrer.Normalized_Mobile !== v.normalized) {
-          Object.assign(row, { Referred_By_Code: v.ref, Referred_By_Customer_ID: referrer.Customer_ID, Referred_By_Name: referrer.Full_Name, Referred_By_Mobile: referrer.Country_Code + ' ' + referrer.Mobile });
-          audit_('CUSTOMER', 'REFERRED', customerId, 'by ' + referrer.Customer_ID + ' (' + v.ref + ')');
-        }
+      if (referrer) {
+        Object.assign(row, { Referred_By_Code: v.ref, Referred_By_Customer_ID: referrer.Customer_ID, Referred_By_Name: referrer.Full_Name, Referred_By_Mobile: referrer.Country_Code + ' ' + referrer.Mobile });
+        audit_('CUSTOMER', 'REFERRED', customerId, 'by ' + referrer.Customer_ID + ' (' + v.ref + ')');
       }
       appendRow_(sh, row);
       audit_('CUSTOMER', 'REGISTER', customerId, v.marketing ? 'marketing consent: yes' : 'marketing consent: no');
@@ -161,7 +172,7 @@ function actRegister_(p) {
       session: signSession_(row.Customer_ID),
       firstName: firstName_(row.Full_Name),
       returning: !isNew,
-      result: row.Game_ID ? buildResult_(row) : null
+      result: null   // a number with a game never reaches this point (ALREADY_PLAYED above)
     };
   });
 }
@@ -170,14 +181,14 @@ function actRegister_(p) {
 function actReferrer_(p) {
   const code = String(p.code || '').trim().toUpperCase();
   if (!/^[A-Z0-9]{6,10}$/.test(code)) fail_('This invite link is not valid.', 'BAD_REF');
-  const r = findParticipant_(function (x) { return x.Campaign_ID === CONFIG.CAMPAIGN_ID && referralCodeOf_(x) === code; });
+  const r = inCampaign_(findRows_(SHEETS.PARTICIPANTS, 'Referral_Code', code));
   if (!r) fail_('This invite link is not valid.', 'BAD_REF');
   return { firstName: firstName_(r.Full_Name) };
 }
 
 function actRestore_(p) {
   const customerId = verifySession_(p.session);
-  const found = findParticipant_(function (r) { return r.Customer_ID === customerId && r.Campaign_ID === CONFIG.CAMPAIGN_ID; });
+  const found = participantById_(customerId);
   if (!found) fail_('Session expired. Please register again.', 'NO_SESSION');
   return { firstName: firstName_(found.Full_Name), result: found.Game_ID ? buildResult_(found) : null };
 }
@@ -185,11 +196,16 @@ function actRestore_(p) {
 function actRoll_(p) {
   const customerId = verifySession_(p.session);
   if (!campaignOpen_()) fail_('This campaign is not active right now.', 'CLOSED');
-  return withLock_(function () {
+  // Outside the lock: unknown sessions and repeat rolls never wait for the lock.
+  const pre = participantById_(customerId);
+  if (!pre) fail_('Please register before rolling.', 'NO_SESSION');
+  if (pre.Game_ID) return { result: buildResult_(pre), existing: true };   // one roll per mobile per campaign
+
+  const out = withLock_(function () {
     const sh = sheet_(SHEETS.PARTICIPANTS);
-    const row = readTable_(sh).find(function (r) { return r.Customer_ID === customerId && r.Campaign_ID === CONFIG.CAMPAIGN_ID; });
+    const row = participantById_(customerId);   // re-check inside the lock
     if (!row) fail_('Please register before rolling.', 'NO_SESSION');
-    if (row.Game_ID) return { result: buildResult_(row), existing: true };   // one roll per mobile per campaign
+    if (row.Game_ID) return { row: row, existing: true };
 
     const d1 = secureDie_(), d2 = secureDie_();
     const total = d1 + d2;
@@ -210,8 +226,9 @@ function actRoll_(p) {
     });
     writeRow_(sh, row._row, row);
     audit_('CUSTOMER', 'GAME_COMPLETED', row.Customer_ID, coupon + ' | ' + d1 + '+' + d2 + '=' + total + ' → ' + offer + '%');
-    return { result: buildResult_(row), existing: false };
+    return { row: row, existing: false };
   });
+  return { result: buildResult_(out.row), existing: out.existing };
 }
 
 function actResolve_(p) {
@@ -237,7 +254,7 @@ function actSubmitOnline_(p) {
 
   return withLock_(function () {
     const sh = sheet_(SHEETS.ONLINE);
-    const existing = readTable_(sh).find(function (r) { return r.Coupon_Code === ctx.row.Coupon_Code; });
+    const existing = findBy_(SHEETS.ONLINE, 'Coupon_Code', ctx.row.Coupon_Code);
     const now = nowStr_();
     let row;
     if (existing) {
@@ -281,7 +298,7 @@ function actBookStore_(p) {
     if (!slot || !slot.available) fail_('That slot was just taken. Please choose another time.', 'SLOT_FULL');
 
     const sh = sheet_(SHEETS.STORE);
-    const existing = readTable_(sh).find(function (r) { return r.Coupon_Code === ctx.row.Coupon_Code && r.Appointment_Status !== 'WALK_IN'; });
+    const existing = findRows_(SHEETS.STORE, 'Coupon_Code', ctx.row.Coupon_Code).filter(function (r) { return r.Appointment_Status !== 'WALK_IN'; })[0];
     const now = nowStr_();
     let row, event;
     if (existing) {
@@ -315,7 +332,7 @@ function actCancelStore_(p) {
   const ctx = participantByToken_(p.token, 'STORE');
   return withLock_(function () {
     const sh = sheet_(SHEETS.STORE);
-    const row = readTable_(sh).find(function (r) { return r.Coupon_Code === ctx.row.Coupon_Code && r.Appointment_Status === 'CONFIRMED'; });
+    const row = findRows_(SHEETS.STORE, 'Coupon_Code', ctx.row.Coupon_Code).filter(function (r) { return r.Appointment_Status === 'CONFIRMED'; })[0];
     if (!row) fail_('No active appointment to cancel.', 'NO_APPT');
     Object.assign(row, { Updated_At: nowStr_(), Appointment_Status: 'CANCELLED' });
     writeRow_(sh, row._row, row);
@@ -352,16 +369,16 @@ function actStaffLookup_(p) {
     const ctx = participantByToken_(tokenMatch ? tokenMatch[1] : q);
     row = ctx.row; via = ctx.kind === 'STORE' ? 'Store Visit QR' : 'Online Claim QR';
   } else if (/^MKLD-/i.test(q)) {
-    row = findParticipant_(function (r) { return String(r.Coupon_Code).toUpperCase() === q.toUpperCase(); }); via = 'Coupon code';
+    row = participantByCoupon_(q.toUpperCase()); via = 'Coupon code';
   } else if (/^MKC-/i.test(q)) {
-    row = findParticipant_(function (r) { return String(r.Customer_ID).toUpperCase() === q.toUpperCase() && r.Campaign_ID === CONFIG.CAMPAIGN_ID; }); via = 'Customer ID';
+    row = participantById_(q.toUpperCase()); via = 'Customer ID';
   } else if (/^APT-/i.test(q)) {
     const appt = findBy_(SHEETS.STORE, 'Appointment_ID', q.toUpperCase());
-    if (appt) row = findParticipant_(function (r) { return r.Coupon_Code === appt.Coupon_Code; }); via = 'Appointment ID';
+    if (appt) row = participantByCoupon_(appt.Coupon_Code); via = 'Appointment ID';
   } else {
     let digits = q.replace(/\D/g, '');
     if (digits.length === 10) digits = '91' + digits;
-    row = findParticipant_(function (r) { return r.Normalized_Mobile === digits && r.Campaign_ID === CONFIG.CAMPAIGN_ID; }); via = 'Mobile number';
+    row = digits ? inCampaign_(findRows_(SHEETS.PARTICIPANTS, 'Normalized_Mobile', digits)) : null; via = 'Mobile number';
   }
   if (!row) fail_('No matching customer or coupon found.', 'NOT_FOUND');
   audit_(staff.id, 'STAFF_LOOKUP', row.Coupon_Code || row.Customer_ID, via);
@@ -371,16 +388,21 @@ function actStaffLookup_(p) {
 function actStaffVisit_(p) {
   const staff = verifyStaff_(p.staffToken);
   const code = String(p.couponCode || '').trim().toUpperCase();
-  return withLock_(function () {
-    const row = findParticipant_(function (r) { return r.Coupon_Code === code; });
+  // Outside the lock: validate and fail fast on unknown or already checked-in coupons.
+  if (!participantByCoupon_(code)) fail_('Coupon not found.', 'NOT_FOUND');
+  const branch = (staff.branch && staff.branch !== 'ALL') ? branch_(staff.branch) : branch_(p.branchId);
+  const isIn = function (r) { return r.Appointment_Status === 'VISITED' || r.Appointment_Status === 'WALK_IN'; };
+  if (findRows_(SHEETS.STORE, 'Coupon_Code', code).some(isIn)) fail_('This customer has already been checked in.', 'VISITED');
+
+  withLock_(function () {
+    const row = participantByCoupon_(code);   // re-check everything inside the lock
     if (!row) fail_('Coupon not found.', 'NOT_FOUND');
-    const branch = (staff.branch && staff.branch !== 'ALL') ? branch_(staff.branch) : branch_(p.branchId);
     const sh = sheet_(SHEETS.STORE);
-    const appts = readTable_(sh).filter(function (r) { return r.Coupon_Code === code; });
-    if (appts.some(function (r) { return r.Appointment_Status === 'VISITED' || r.Appointment_Status === 'WALK_IN'; })) fail_('This customer has already been checked in.', 'VISITED');
+    const appts = findRows_(SHEETS.STORE, 'Coupon_Code', code);
+    if (appts.some(isIn)) fail_('This customer has already been checked in.', 'VISITED');
     const visitId = 'V-' + pad_(nextSeq_('VISIT', 1), 6);
     const now = nowStr_();
-    let appt = appts.find(function (r) { return r.Appointment_Status === 'CONFIRMED'; });
+    let appt = appts.filter(function (r) { return r.Appointment_Status === 'CONFIRMED'; })[0];
     if (appt) {
       Object.assign(appt, { Updated_At: now, Appointment_Status: 'VISITED', Visit_ID: visitId, Visited_At: now, Checked_In_By: staff.id + ' (' + staff.name + ')' });
       if (appt.Branch_ID !== branch.id) appt.Notes = (appt.Notes ? appt.Notes + ' | ' : '') + 'Checked in at ' + branch.name;
@@ -397,8 +419,8 @@ function actStaffVisit_(p) {
     }
     updateParticipant_(row, { Store_Visit_Status: 'VISITED', Visited_At: now });
     audit_(staff.id, 'CUSTOMER_VISITED', visitId, code + ' @ ' + branch.name);
-    return { record: staffRecord_(findParticipant_(function (r) { return r.Coupon_Code === code; })) };
   });
+  return { record: staffRecord_(participantByCoupon_(code)) };
 }
 
 function actStaffRedeem_(p) {
@@ -409,17 +431,22 @@ function actStaffRedeem_(p) {
   if (mc !== null && !(mc > 0 && mc < 1e9)) fail_('Enter valid making charges.', 'AMOUNT');
   if (inv !== null && !(inv > 0 && inv < 1e10)) fail_('Enter a valid invoice value.', 'AMOUNT');
   const channel = p.channel === 'ONLINE' ? 'ONLINE' : 'STORE';
-
-  return withLock_(function () {
-    const row = findParticipant_(function (r) { return r.Coupon_Code === code; });
+  const check = function (row) {
     if (!row) fail_('Coupon not found.', 'NOT_FOUND');
     const status = couponStatus_(row);
     if (status === 'REDEEMED') fail_('This coupon was already redeemed on ' + row.Redeemed_At + ' by ' + row.Redeemed_By + '.', 'REDEEMED');
     if (status === 'EXPIRED') fail_('This coupon expired on ' + row.Coupon_Expiry_Date + '.', 'EXPIRED');
+    return row;
+  };
+  // Outside the lock: fail fast on unknown, redeemed or expired coupons.
+  check(participantByCoupon_(code));
+  const branch = channel === 'ONLINE' ? { name: 'Online' } : ((staff.branch && staff.branch !== 'ALL') ? branch_(staff.branch) : (p.branchId ? branch_(p.branchId) : { name: '' }));
+
+  const red = withLock_(function () {
+    const row = check(participantByCoupon_(code));   // re-check inside the lock: one redemption per coupon
     const offer = Number(row.Offer_Percent);
     const discount = mc === null ? '' : round2_(mc * offer / 100);
     const finalMc = mc === null ? '' : round2_(mc - discount);
-    const branch = channel === 'ONLINE' ? { name: 'Online' } : ((staff.branch && staff.branch !== 'ALL') ? branch_(staff.branch) : (p.branchId ? branch_(p.branchId) : { name: '' }));
     const now = nowStr_();
     const red = {
       Redemption_ID: 'R-' + pad_(nextSeq_('REDEMPTION', 1), 6), Redeemed_At: now, Coupon_Code: code, Customer_ID: row.Customer_ID,
@@ -431,8 +458,23 @@ function actStaffRedeem_(p) {
     appendRow_(sheet_(SHEETS.REDEMPTIONS), red);
     updateParticipant_(row, { Coupon_Status: 'REDEEMED', Redeemed_At: now, Redeemed_By: red.Redeemed_By });
     audit_(staff.id, 'COUPON_REDEEMED', code, red.Redemption_ID + ' ' + channel + (mc === null ? '' : ' MC ' + mc + ' → ' + finalMc));
-    return { redemption: red, record: staffRecord_(findParticipant_(function (r) { return r.Coupon_Code === code; })) };
+    return red;
   });
+  return { redemption: red, record: staffRecord_(participantByCoupon_(code)) };
+}
+
+/** Public: browser error report (production builds only). Rate-limited; message trimmed to 300 characters. */
+function actLogClientError_(p) {
+  let who = '';
+  if (p.session) { try { who = verifySession_(p.session); } catch (e) { who = ''; } }
+  const sid = /^[A-Za-z0-9_-]{8,40}$/.test(String(p.sid || '')) ? String(p.sid) : '';
+  rateLimit_('cerr:' + (who || sid || 'anon'), 5, 600, 'Too many error reports.');
+  rateLimit_('cerr:all', 300, 600, 'Too many error reports.');   // global cap protects Audit_Log
+  const msg = cleanText_(p.message, 300) || '(no message)';
+  const where = [cleanText_(p.page, 30), cleanText_(p.source, 120) + (p.line ? ':' + (Number(p.line) || 0) : ''), cleanText_(p.ua, 120)]
+    .filter(function (x) { return x; }).join(' | ');
+  audit_('CLIENT', 'CLIENT_ERROR', who || (sid ? 'sid:' + sid : 'anon'), msg + (where ? ' || ' + where : ''));
+  return {};
 }
 
 /* =========================== DOMAIN HELPERS =========================== */
@@ -525,7 +567,7 @@ function publicAppt_(r) {
 
 function staffRecord_(row) {
   const online = findBy_(SHEETS.ONLINE, 'Coupon_Code', row.Coupon_Code);
-  const appts = row.Coupon_Code ? readTable_(sheet_(SHEETS.STORE)).filter(function (r) { return r.Coupon_Code === row.Coupon_Code; }) : [];
+  const appts = findRows_(SHEETS.STORE, 'Coupon_Code', row.Coupon_Code);
   const red = row.Coupon_Code ? findBy_(SHEETS.REDEMPTIONS, 'Coupon_Code', row.Coupon_Code) : null;
   return {
     customerId: row.Customer_ID, name: row.Full_Name, mobile: '+' + row.Normalized_Mobile, city: row.City, pincode: row.PINCODE,
@@ -544,7 +586,7 @@ function participantByToken_(token, requiredKind) {
   token = String(token || '');
   if (!/^[A-Za-z0-9_-]{32}$/.test(token)) fail_('This QR code is not valid.', 'BAD_TOKEN');
   const hash = sha256Hex_(token);
-  const row = findParticipant_(function (r) { return r.Online_Token_Hash === hash || r.Store_Token_Hash === hash; });
+  const row = findBy_(SHEETS.PARTICIPANTS, 'Online_Token_Hash', hash) || findBy_(SHEETS.PARTICIPANTS, 'Store_Token_Hash', hash);
   if (!row) fail_('This QR code is not valid.', 'BAD_TOKEN');
   const kind = row.Online_Token_Hash === hash ? 'ONLINE' : 'STORE';
   if (requiredKind && kind !== requiredKind) fail_('This QR code is for ' + (kind === 'ONLINE' ? 'online claims' : 'store visits') + '.', 'WRONG_QR');
@@ -557,11 +599,14 @@ function slotsFor_(branchId, date, ownCoupon) {
   const weekday = new Date(date + 'T00:00:00Z').getUTCDay();
   const closed = date < today || date > maxDate || CONFIG.CLOSED_WEEKDAYS.indexOf(weekday) >= 0;
   const counts = {};
-  readTable_(sheet_(SHEETS.STORE)).forEach(function (r) {
-    if (r.Branch_ID === branchId && r.Appointment_Date === date && r.Appointment_Status === 'CONFIRMED' && r.Coupon_Code !== ownCoupon) {
-      counts[r.Appointment_Time] = (counts[r.Appointment_Time] || 0) + 1;
+  if (!closed) {
+    const c = readColumns_(SHEETS.STORE, ['Branch_ID', 'Appointment_Date', 'Appointment_Status', 'Coupon_Code', 'Appointment_Time']);
+    for (let i = 0; i < c.n; i++) {
+      if (c.Branch_ID[i] === branchId && c.Appointment_Date[i] === date && c.Appointment_Status[i] === 'CONFIRMED' && c.Coupon_Code[i] !== ownCoupon) {
+        counts[c.Appointment_Time[i]] = (counts[c.Appointment_Time[i]] || 0) + 1;
+      }
     }
-  });
+  }
   const nowMin = date === today ? (function () { const t = istParts_(new Date()); return t.h * 60 + t.mi + CONFIG.MIN_LEAD_MINUTES; })() : -1;
   return CONFIG.STORE_SLOTS.map(function (t) {
     const m = Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
@@ -656,32 +701,79 @@ const checkedHeaders_ = {};
 function ensureHeaders_(sh, def) {
   if (checkedHeaders_[def.name]) return;
   checkedHeaders_[def.name] = true;
+  delete headerCache_[def.name];
   const have = headersOf_(sh);
   const missing = def.headers.filter(function (h) { return have.indexOf(h) < 0; });
   if (!missing.length) return;
   sh.getRange(1, have.length + 1, 1, missing.length).setValues([missing]);
+  delete headerCache_[def.name];
 }
 function initSheet_(sh, def) {
+  delete headerCache_[def.name];
   sh.getRange(1, 1, 1, def.headers.length).setValues([def.headers])
     .setFontWeight('bold').setBackground('#101010').setFontColor('#D4B477');
   sh.getRange(1, 1, sh.getMaxRows(), def.headers.length).setNumberFormat('@');  // keep phones/IDs as text
   sh.setFrozenRows(1);
 }
+function cellStr_(v) { return v === null || v === undefined ? '' : (v instanceof Date ? v.toISOString() : String(v)); }
+function rowObj_(headers, values, rowNum) {
+  const o = { _row: rowNum };
+  for (let c = 0; c < headers.length; c++) o[headers[c]] = cellStr_(values[c]);
+  return o;
+}
+/** Whole-sheet read. Only for small sheets (Staff) and one-off admin jobs; hot paths use findRows_(). */
 function readTable_(sh) {
   const last = sh.getLastRow();
   if (last < 2) return [];
-  const width = sh.getLastColumn();
-  const values = sh.getRange(1, 1, last, width).getValues();
-  const headers = values[0];
+  const headers = headersOf_(sh);
+  const values = sh.getRange(2, 1, last - 1, headers.length).getValues();
   const out = [];
-  for (let i = 1; i < values.length; i++) {
-    const o = { _row: i + 1 };
-    for (let c = 0; c < headers.length; c++) o[headers[c]] = values[i][c] === null ? '' : (values[i][c] instanceof Date ? values[i][c].toISOString() : String(values[i][c]));
-    out.push(o);
+  for (let i = 0; i < values.length; i++) out.push(rowObj_(headers, values[i], i + 2));
+  return out;
+}
+/** Header row, cached for the rest of this execution. */
+const headerCache_ = {};
+function headersOf_(sh) {
+  const name = sh.getName();
+  if (!headerCache_[name]) headerCache_[name] = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(cellStr_);
+  return headerCache_[name];
+}
+function readRow_(sh, rowNum) {
+  const h = headersOf_(sh);
+  return rowObj_(h, sh.getRange(rowNum, 1, 1, h.length).getValues()[0], rowNum);
+}
+/**
+ * Every row whose `col` cell is exactly `value`. TextFinder searches that one column on Google's side,
+ * then only the matched rows are read, so the cost stays flat as the sheet grows.
+ */
+function findRows_(def, col, value) {
+  value = value == null ? '' : String(value);
+  if (!value) return [];
+  const sh = sheet_(def);
+  const last = sh.getLastRow();
+  if (last < 2) return [];
+  const c = headersOf_(sh).indexOf(col);
+  if (c < 0) return [];
+  const hits = sh.getRange(2, c + 1, last - 1, 1).createTextFinder(value).matchCase(true).matchEntireCell(true).findAll();
+  const out = [];
+  for (let i = 0; i < hits.length; i++) {
+    const r = readRow_(sh, hits[i].getRow());
+    if (r[col] === value) out.push(r);   // exact re-check (TextFinder compares display text)
   }
   return out;
 }
-function headersOf_(sh) { return sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0]; }
+/** Selected columns only, as arrays (for scans that need few columns, e.g. slot capacity). */
+function readColumns_(def, names) {
+  const sh = sheet_(def);
+  const last = sh.getLastRow();
+  const h = headersOf_(sh);
+  const out = { n: Math.max(0, last - 1) };
+  names.forEach(function (name) {
+    const c = h.indexOf(name);
+    out[name] = (out.n && c >= 0) ? sh.getRange(2, c + 1, out.n, 1).getValues().map(function (r) { return cellStr_(r[0]); }) : [];
+  });
+  return out;
+}
 function writeRow_(sh, rowNum, obj) {
   const h = headersOf_(sh);
   sh.getRange(rowNum, 1, 1, h.length).setValues([h.map(function (k) { return cell_(obj[k]); })]);
@@ -696,14 +788,18 @@ function cell_(v) {
   v = String(v);
   return /^[\d+\-=@.]/.test(v) ? "'" + v : v;
 }
-function findBy_(def, col, value) {
-  if (!value) return null;
-  return readTable_(sheet_(def)).find(function (r) { return r[col] === value; }) || null;
-}
-function findParticipant_(pred) { return readTable_(sheet_(SHEETS.PARTICIPANTS)).find(pred) || null; }
+function findBy_(def, col, value) { return findRows_(def, col, value)[0] || null; }
+function inCampaign_(rows) { return rows.filter(function (r) { return r.Campaign_ID === CONFIG.CAMPAIGN_ID; })[0] || null; }
+function participantById_(customerId) { return inCampaign_(findRows_(SHEETS.PARTICIPANTS, 'Customer_ID', customerId)); }
+function participantByCoupon_(code) { return findBy_(SHEETS.PARTICIPANTS, 'Coupon_Code', code); }
 function updateParticipant_(row, patch) {
   const sh = sheet_(SHEETS.PARTICIPANTS);
-  const fresh = readTable_(sh).find(function (r) { return r.Customer_ID === row.Customer_ID && r.Campaign_ID === row.Campaign_ID; });
+  // Re-read the row we already know (cheap); fall back to a lookup if someone sorted the sheet.
+  let fresh = row._row ? readRow_(sh, row._row) : null;
+  if (!fresh || fresh.Customer_ID !== row.Customer_ID || fresh.Campaign_ID !== row.Campaign_ID) {
+    fresh = findRows_(SHEETS.PARTICIPANTS, 'Customer_ID', row.Customer_ID).filter(function (r) { return r.Campaign_ID === row.Campaign_ID; })[0];
+  }
+  if (!fresh) fail_('Customer record not found.', 'NOT_FOUND');
   Object.assign(fresh, patch, { Updated_At: nowStr_() });
   writeRow_(sh, fresh._row, fresh);
   Object.assign(row, patch);
@@ -749,8 +845,46 @@ function setup() {
   if (staffSh.getLastRow() < 2) {
     appendRow_(staffSh, { Staff_ID: 'ADMIN01', Name: 'Admin', PIN: String(100000 + Math.floor(Math.random() * 900000)), Role: 'ADMIN', Branch: 'ALL', Active: 'YES' });
   }
+  backfillReferralCodes_();
   buildDashboard_();
   return 'Setup complete. Check the Staff tab for the first admin PIN.';
+}
+
+/** Rows created before referrals existed get their (derived) Referral_Code written, so invite lookups can find them. */
+function backfillReferralCodes_() {
+  const sh = sheet_(SHEETS.PARTICIPANTS);
+  readTable_(sh).forEach(function (r) {
+    if (!r.Referral_Code && r.Customer_ID) { r.Referral_Code = referralCode_(r.Customer_ID); writeRow_(sh, r._row, r); }
+  });
+}
+
+/**
+ * RUN BY HAND before launch (Apps Script editor → choose resetForLaunch → Run).
+ * Deletes every data row (headers stay) in Participants, Online_Claims, Store_Visits, Redemptions and Audit_Log
+ * and resets the ID counters. The Staff tab and the SECRET Script Property are never touched.
+ * Safety catch: refuses unless Script Property CONFIRM_RESET = YES, and deletes that property afterwards.
+ */
+function resetForLaunch() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('CONFIRM_RESET') !== 'YES') {
+    throw new Error('Refusing to reset. In Project Settings → Script Properties add CONFIRM_RESET = YES, then run resetForLaunch again.');
+  }
+  try {
+    return withLock_(function () {
+      const cleared = [];
+      [SHEETS.PARTICIPANTS, SHEETS.ONLINE, SHEETS.STORE, SHEETS.REDEMPTIONS, SHEETS.AUDIT].forEach(function (def) {
+        const sh = sheet_(def);
+        const last = sh.getLastRow();
+        if (last > 1) sh.getRange(2, 1, last - 1, Math.max(sh.getLastColumn(), def.headers.length)).clearContent();
+        cleared.push(def.name + ': ' + Math.max(0, last - 1));
+      });
+      props.getKeys().forEach(function (k) { if (/^SEQ_/.test(k)) props.deleteProperty(k); });
+      audit_('ADMIN', 'RESET_FOR_LAUNCH', VERSION, 'Rows deleted → ' + cleared.join(', '));
+      return 'Reset complete. ' + cleared.join(', ') + '. ID counters reset; Staff tab and SECRET kept.';
+    });
+  } finally {
+    props.deleteProperty('CONFIRM_RESET');
+  }
 }
 
 function buildDashboard_() {
