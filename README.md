@@ -84,7 +84,7 @@ VITE_PUBLIC_URL=https://luckydice.mkjewels.in
 
 Then:
 - Customer link for the invitation message: `https://luckydice.mkjewels.in/?src=whatsapp` (the `src` value is saved as the campaign source)
-- Staff portal: `https://luckydice.mkjewels.in/team-mk7q.html` (unlisted; share it only with staff and bookmark it on store and sales-team phones)
+- Staff portal: `https://luckydice.mkjewels.in/staff` (unlisted; share it only with staff and bookmark it on store and sales-team phones)
 
 **Preview mode:** if `VITE_API_URL` is empty (for example during `npm run dev`), the app runs the real `Code.gs` inside the browser against local storage. The customer site shows no ribbon. The staff portal shows a small bar with the demo logins: `ADMIN01 / 246810`, `STORE01 / 135790` and `ONLINE01 / 112233`. Builds with `VITE_API_URL` never include preview mode, and Vercel production builds refuse to run without it. Reset preview data with `localStorage.clear()`.
 
@@ -134,7 +134,7 @@ Then:
 ```
 backend/Code.gs            Apps Script API + Sheet setup + dashboard
 index.html, src/main.js    Customer experience
-team-mk7q.html, src/staff.js   Staff scanner, check-in and redemption
+staff.html, src/staff.js   Staff scanner, check-in and redemption
 src/dice/                  3D stage, physics planner, procedural gold & velvet textures, no-WebGL fallback
 src/lib/                   audio synthesis, haptics, QR, coupon PNGs, calendar, phone validation
 tests/                     backend business-rule tests, 20k-participant scale test, physics tests

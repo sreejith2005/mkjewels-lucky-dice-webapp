@@ -41,7 +41,7 @@ export default defineConfig(({ mode }) => {
       target: 'es2020',
       chunkSizeWarningLimit: 900,
       rollupOptions: {
-        input: { main: resolve(root, 'index.html'), staff: resolve(root, 'team-mk7q.html') },
+        input: { main: resolve(root, 'index.html'), staff: resolve(root, 'staff.html') },
         output: { manualChunks: { three: ['three'], physics: ['cannon-es'] } }
       }
     },

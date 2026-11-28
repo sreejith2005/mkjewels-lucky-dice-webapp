@@ -43,7 +43,7 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
 | `dev/preview-headers.config.js` | `npm run preview:vercel`: `vite preview` plus the `vercel.json` headers. |
 | `tests/scale.test.mjs` | Builds 20,000 participants (plus claims and bookings) and checks register, roll, restore, resolve, referrer and staff lookup/visit/redeem; prints per-action timings. |
 | `index.html` + `src/main.js` | Customer SPA. Views are `<section data-view>`: welcome → register → play (states `ready` / `rolling` / `won`) → online / store / message. The router reads `?c=online\|store&t=TOKEN`. |
-| `team-mk7q.html` + `src/staff.js` | Staff portal (unlisted URL `/team-mk7q.html`, never linked from the customer app): login, camera scan, search, mark visited, redeem. |
+| `staff.html` + `src/staff.js` | Staff portal (URL `/staff`; Vercel `cleanUrls` serves `staff.html` there, never linked from the customer app): login, camera scan, search, mark visited, redeem. |
 | `src/dice/physics.js` | cannon-es throw planner (pure, Node-testable), tuned to the approved motion study `MK Jewels – Lucky Double Dice.html` (solid rails, ceiling, G=32). Frames are a flat `Float32Array` (`STRIDE` 14 per frame at `HZ` 120). |
 | `src/dice/physics.worker.js` | Runs `planThrow` in a Web Worker so planning never blocks the UI (stage falls back to the main thread). |
 | `src/dice/stage.js` | Three.js dice stage: `new DiceStage(host, {mode:'game'})` (a `showcase` mode still exists but the home screen now shows the campaign film instead). States `idle`/`awaiting`/`rolling`/`settled`. Custom `studioEnvironment()` (neutral softboxes) + `NeutralToneMapping` so gold reads as gold, plum velvet tray (Jiyo Saj Ke colour) with gold-foil MK logo, "Jiyo Saj Ke" script and inlay, gold rails, clear-coated dice whose "1" is a large engraved pip with the MK monogram (`applyBrand()` once the logo + Great Vibes font load). Dice rest on the felt when idle and are lifted only while held, shaken or gathered. Emits `pick` when a settled tray is touched (fun rolls). Always antialiased. Created on entering play, `dispose()`d on leaving. Degrades once (1× DPR, no shadows/dust) on slow devices. |
@@ -104,7 +104,7 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
   - Workers come from `'self'` and `blob:` (qr-scanner).
   - `camera`, `accelerometer` and `gyroscope` are allowed for `self` only (staff scanner, shake-to-roll).
   - Check with `npm run preview:vercel` and watch for `securitypolicyviolation` and console errors.
-- **Caching:** `/assets/*` and `/film/*` are cached for a year as immutable; `index.html` and `team-mk7q.html` are `no-cache`. **Files in `public/film/` are not content-hashed, so give a replaced film a new file name.**
+- **Caching:** `/assets/*` and `/film/*` are cached for a year as immutable; `index.html` and `staff.html` (`/staff`) are `no-cache`. **Files in `public/film/` are not content-hashed, so give a replaced film a new file name.**
 - **Error reporting:** keep `installErrorReporting` in `main.js` / `staff.js`. It only runs in production builds with `VITE_API_URL`.
 - **Performance:** no `backdrop-filter`, `mix-blend-mode` overlays, animated blur, or infinite decorative animations. Don't animate the stage size (it rebuilds the tray).
 - **Mobile first:**
