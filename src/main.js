@@ -745,6 +745,7 @@ function confirmSheet(title, body, ok) {
 
 /* ================================================================ home, navigation */
 function paintOdds() {
+  if (matchMedia('(min-width: 1024px)').matches) $('#odds-box').open = true;
   $('#odds').innerHTML = Object.entries(OFFERS).map(([t, o]) => `<li${t === '12' ? ' class="jack"' : ''}><span>${t === '12' ? '6 + 6' : t} →</span><b>${o}%</b></li>`).join('');
 }
 

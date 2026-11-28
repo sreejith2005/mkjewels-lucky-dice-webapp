@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#131210" />
+  <meta name="theme-color" content="#fbf8f2" />
   <title>MK Jewels – Lucky Double Dice</title>
   <meta name="description" content="Roll two golden dice and win 20% to 50% off making charges at MK Jewels. Every roll wins." />
   <meta property="og:title" content="MK Jewels – Lucky Double Dice" />
@@ -14,7 +14,7 @@
   <script>
     (function () {
       var t = null; try { t = localStorage.getItem('mk_theme'); } catch (e) {}
-      if (t !== 'light' && t !== 'dark') t = window.matchMedia && matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      if (t !== 'light' && t !== 'dark') t = 'light';   // light (white & gold) is the default
       document.documentElement.dataset.theme = t;
     })();
   </script>
@@ -68,12 +68,11 @@
         <div class="welcome-copy">
           <p class="invite" id="invite" hidden><svg class="icon"><use href="#i-users"/></svg><span></span></p>
           <p class="campaign"><span class="script">Jiyo Saj Ke</span><span class="sep" aria-hidden="true"></span><span class="eyebrow">Lucky Double Dice</span></p>
-          <h1 class="display hero-title">Roll the golden dice. <em>Win up to 50% off</em> making charges.</h1>
+          <h1 class="display hero-title">Win up to <em>50% off</em> making charges</h1>
           <div class="cta-row">
             <button class="btn btn-gold btn-lg" id="btn-play" type="button">Play now</button>
             <button class="btn btn-ghost" id="btn-my-reward" type="button" hidden>View my reward</button>
           </div>
-          <p class="hint">One roll per mobile number</p>
         </div>
         <div class="welcome-film">
           <figure class="film" id="film">
@@ -81,13 +80,12 @@
             <button class="film-play" id="film-play" type="button" aria-label="Play the film" hidden><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg></button>
             <button class="film-sound" id="film-sound" type="button" aria-pressed="false"><svg class="icon"><use href="#i-mute"/></svg><span>Tap for sound</span></button>
           </figure>
-          <p class="film-cap">Watch the film. Then roll for your reward.</p>
         </div>
       </div>
-      <section class="odds" aria-labelledby="odds-title">
-        <p class="odds-title" id="odds-title">Your discount by dice total</p>
+      <details class="odds" id="odds-box">
+        <summary class="odds-title">Discount by dice total<svg class="icon"><use href="#i-chev"/></svg></summary>
         <ul class="odds-list" id="odds"></ul>
-      </section>
+      </details>
     </section>
 
     <!-- REGISTER -->

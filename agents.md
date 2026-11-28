@@ -97,6 +97,8 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
 - **Fun rolls:** after the real roll, "Roll again for fun" (or touching the settled tray, then swipe/shake) rolls random values locally. It never calls the server and never changes `S.result` or the coupon; the readout says "Fun roll" and the note says the reward stays the same.
 - **Campaign film (Jiyo Saj Ke):** home screen only, `#film-video` (`public/film/jiyo-saj-ke-720.mp4`, `-1080.mp4` for large screens, `poster.jpg`). Muted autoplay loop (sound only when the user taps "Tap for sound" or the video); no autoplay on Save-Data/2G or reduced motion. `go()` pauses and re-mutes it whenever the home screen is left, so it never plays over the dice. The 665 MB ProRes master (`public/brand/FILM 1.mov`) is git-ignored; re-encode with ffmpeg (H.264 CRF 24–25, AAC, `+faststart`) if the film changes.
 - **Top bar:** text wordmark "MK JEWELS" only (no image logo).
+- **Theme default:** light (white & gold) unless the visitor chose dark (`mk_theme`).
+- **Home screen:** film, campaign line, one-line headline, Play now; the discount table is a collapsed `<details>` (open by default on desktop). Keep it this lean.
 - **How-to-roll popup:** `#howto` opens every time the play view is entered before a roll (shake + hold-and-throw on phones; drag-and-throw on desktop). Its "Let's roll" tap is where iOS motion permission is requested.
 - **Haptics:** go through `haptic()` / `hapticPattern()` only.
 
