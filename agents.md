@@ -30,14 +30,14 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
 |---|---|
 | `backend/Code.gs` | **The only backend.** Google Apps Script bound to the Sheet. It holds `CONFIG` (campaign, offer table, branches, slots), all API actions, sheet schema (`SHEETS`), `setup()` and the Dashboard. |
 | `src/gas-shim.js` | Apps Script emulator. It runs `Code.gs` **unchanged** in Node (tests) and in the browser (preview mode). |
-| `src/preview-backend.js` | Preview mode: runs `Code.gs` on localStorage (`mk_preview_db_v1`). Dead-code-eliminated when `VITE_API_URL` is set. |
+| `src/preview-backend.js` | Preview mode: runs `Code.gs` on localStorage (`mk_preview_db_v2`). Dead-code-eliminated when `VITE_API_URL` is set. |
 | `src/api.js` | `api(action, payload)`. POST with `text/plain` (avoids CORS preflight) to the Apps Script `/exec` URL, falling back to preview. It throws `ApiError{message, code}`. |
 | `src/config.js` | `API_URL`, `PUBLIC_URL`, `claimUrl(kind, token)`, brand links. |
 | `index.html` + `src/main.js` | Customer SPA. Views are `<section data-view>`: welcome → register → play (states `ready` / `rolling` / `won`) → online / store / message. The router reads `?c=online\|store&t=TOKEN`. |
 | `team-mk7q.html` + `src/staff.js` | Staff portal (unlisted URL `/team-mk7q.html`, never linked from the customer app): login, camera scan, search, mark visited, redeem. |
 | `src/dice/physics.js` | cannon-es throw planner (pure, Node-testable), tuned to the approved motion study `MK Jewels – Lucky Double Dice.html` (solid rails, ceiling, G=32). Frames are a flat `Float32Array` (`STRIDE` 14 per frame at `HZ` 120). |
 | `src/dice/physics.worker.js` | Runs `planThrow` in a Web Worker so planning never blocks the UI (stage falls back to the main thread). |
-| `src/dice/stage.js` | Three.js port of the motion study: `new DiceStage(host, {mode:'showcase'|'game'})`. States `idle`/`awaiting`/`rolling`/`settled`. RoomEnvironment, velvet tray with gold rails, clear-coated dice, gold dust, following camera with impact shake. One stage per view: created on entering welcome/play, `dispose()`d on leaving. Degrades once (1× DPR, no shadows/dust) on slow devices. |
+| `src/dice/stage.js` | Three.js dice stage: `new DiceStage(host, {mode:'game'})` (a `showcase` mode still exists but the home screen now shows the campaign film instead). States `idle`/`awaiting`/`rolling`/`settled`. Custom `studioEnvironment()` (neutral softboxes) + `NeutralToneMapping` so gold reads as gold, plum velvet tray (Jiyo Saj Ke colour) with gold-foil MK logo, "Jiyo Saj Ke" script and inlay, gold rails, clear-coated dice whose "1" is a large engraved pip with the MK monogram (`applyBrand()` once the logo + Great Vibes font load). Dice rest on the felt when idle and are lifted only while held, shaken or gathered. Emits `pick` when a settled tray is touched (fun rolls). Always antialiased. Created on entering play, `dispose()`d on leaving. Degrades once (1× DPR, no shadows/dust) on slow devices. |
 | `src/dice/fallback.js` | CSS 3D dice when WebGL is unavailable. |
 | `src/lib/` | `audio.js` (synthesised Web Audio, no files), `haptics.js` (vibrate plus iOS switch trick), `fx.js` (confetti and fireworks), `qr.js`, `keepsakes.js` (coupon and QR PNGs), `ui.js` (calendar with month/year pickers, `datePicker` field, chips, toast, dates, ICS), `motion.js` (shake-to-roll via DeviceMotion; iOS permission requested from the Register tap), `phone.js` (libphonenumber `max`). |
 | `src/styles/base.css` | Design tokens and shared components (buttons, cards, fields, chips, calendar). |
@@ -92,14 +92,18 @@ python3 tests/dice_faces.py         # renders all 36 dice combos and asserts the
   - Must work in the WhatsApp/Instagram in-app browsers (no popups on load, no reliance on `localStorage` succeeding — wrap it in try/catch like `store` in `main.js`).
 - **Audio:** only after a user gesture (`unlockAudio` on the first pointerdown). Keep sounds synthesised in `audio.js`; don't add audio files.
 - **Coupon reveal:** after the roll only the % and a "Download my coupon" button show. Tapping it downloads `couponPng(r, storeQrUrl)` (code + Store QR) and only then reveals the coupon card, the claim options and sharing. Revealed state is remembered per coupon (`mk_ldd_revealed_<code>`); returning players see it open.
-- **Throw feel:** dice are thrown down onto the felt from about 1.7 units high (air time ~0.2 s, ~1.5 s rolling); rolls over 3.2 s are rejected; the last 0.6 s plays at 0.7×.
+- **Throw feel:** dice rest on the felt; when held they lift to ~1.2 units and are thrown down (landing in ~0.15 s). All feel parameters live in `TUNE` in `physics.js` (G −28). The planner re-plans throws with less than `minRoll` (1.6 s) of tumbling on the felt or more than `maxBounce` (0.2 s) of hopping, and rejects anything over 3.4 s. Playback runs at 0.92× and the last 0.6 s at 0.72×. Result: ~2 s of rolling on the tray.
+- **Sounds:** impacts are short modal "knocks" (`knock()` in `audio.js`): dry resin clacks die-to-die, muffled toks on velvet, firmer knocks off rails. Soft felt contacts (≥0.45) are recorded so the tumble patters. No bell-like ringing on impacts.
+- **Fun rolls:** after the real roll, "Roll again for fun" (or touching the settled tray, then swipe/shake) rolls random values locally. It never calls the server and never changes `S.result` or the coupon; the readout says "Fun roll" and the note says the reward stays the same.
+- **Campaign film (Jiyo Saj Ke):** home screen only, `#film-video` (`public/film/jiyo-saj-ke-720.mp4`, `-1080.mp4` for large screens, `poster.jpg`). Muted autoplay loop (sound only when the user taps "Tap for sound" or the video); no autoplay on Save-Data/2G or reduced motion. `go()` pauses and re-mutes it whenever the home screen is left, so it never plays over the dice. The 665 MB ProRes master (`public/brand/FILM 1.mov`) is git-ignored; re-encode with ffmpeg (H.264 CRF 24–25, AAC, `+faststart`) if the film changes.
+- **Top bar:** text wordmark "MK JEWELS" only (no image logo).
 - **How-to-roll popup:** `#howto` opens every time the play view is entered before a roll (shake + hold-and-throw on phones; drag-and-throw on desktop). Its "Let's roll" tap is where iOS motion permission is requested.
 - **Haptics:** go through `haptic()` / `hapticPattern()` only.
 
 ## Dice engine notes
 - **Tuning:**
   - Physics: gravity `G`, contact materials, damping and sleep thresholds in `physics.js`.
-  - Rejection rules: still moving at the end, cocked (`dot < 0.985`), escaped, a wall hit with `y > 1.25` (looks like an invisible wall), shorter than 60 frames, and landing near the rim on the first 60% of attempts.
+  - Rejection rules: still moving at the end, cocked (`dot < 0.985`), escaped, too little tumbling on the felt (`minRoll`), hopping (`maxBounce`), over `maxSeconds`. The last 5 attempts accept anything valid.
   - After tuning, run `node tests/physics.test.mjs` and keep **150/150 ok** on both tray shapes (it also checks final faces).
 - **Look:**
   - Lighting comes from `studioEnvironment()` (dark room with softboxes, which gives the jewellery-like contrast) plus a key spotlight with shadows.

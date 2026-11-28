@@ -44,6 +44,7 @@
       <symbol id="i-moon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></symbol>
       <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M3 19.5c.8-3.2 3.2-5 6-5s5.2 1.8 6 5M16 5.2a3 3 0 0 1 0 5.6M18 14.8c1.6.6 2.6 2.2 3 4.7"/></symbol>
       <symbol id="i-spark" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2c.6 4.8 2.2 6.6 7 7.2v.6c-4.8.6-6.4 2.4-7 7.2h-.1c-.6-4.8-2.2-6.6-7-7.2v-.6c4.8-.6 6.4-2.4 7-7.2Z"/></symbol>
+      <symbol id="i-dice" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3.5" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="9" cy="9" r="1.3" fill="currentColor"/><circle cx="15" cy="15" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></symbol>
     </defs>
   </svg>
 
@@ -53,7 +54,7 @@
   </div>
 
   <header class="topbar">
-    <a class="wordmark" href="./" data-home aria-label="MK Jewels – back to home"><img src="/brand/mk-logo-sm.png" alt="" />MK JEWELS</a>
+    <a class="wordmark" href="./" data-home aria-label="MK Jewels – back to home">MK JEWELS</a>
     <div class="topbar-r">
       <button class="icon-btn theme-toggle" type="button" aria-label="Switch to light mode"><svg class="icon"><use href="#i-sun"/></svg></button>
       <button class="icon-btn sound-toggle" type="button" aria-label="Sound on" aria-pressed="true"><svg class="icon"><use href="#i-sound"/></svg></button>
@@ -66,7 +67,7 @@
       <div class="welcome">
         <div class="welcome-copy">
           <p class="invite" id="invite" hidden><svg class="icon"><use href="#i-users"/></svg><span></span></p>
-          <p class="eyebrow">Lucky Double Dice</p>
+          <p class="campaign"><span class="script">Jiyo Saj Ke</span><span class="sep" aria-hidden="true"></span><span class="eyebrow">Lucky Double Dice</span></p>
           <h1 class="display hero-title">Roll the golden dice. <em>Win up to 50% off</em> making charges.</h1>
           <div class="cta-row">
             <button class="btn btn-gold btn-lg" id="btn-play" type="button">Play now</button>
@@ -74,8 +75,13 @@
           </div>
           <p class="hint">One roll per mobile number</p>
         </div>
-        <div class="welcome-stage">
-          <div class="stage-frame hero"><div class="stage-host" id="stage-welcome"></div></div>
+        <div class="welcome-film">
+          <figure class="film" id="film">
+            <video id="film-video" playsinline muted loop preload="none" poster="/film/poster.jpg" aria-label="Jiyo Saj Ke, the MK Jewels campaign film"></video>
+            <button class="film-play" id="film-play" type="button" aria-label="Play the film" hidden><svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg></button>
+            <button class="film-sound" id="film-sound" type="button" aria-pressed="false"><svg class="icon"><use href="#i-mute"/></svg><span>Tap for sound</span></button>
+          </figure>
+          <p class="film-cap">Watch the film. Then roll for your reward.</p>
         </div>
       </div>
       <section class="odds" aria-labelledby="odds-title">
@@ -154,6 +160,10 @@
           <p class="play-hint" id="play-hint" aria-live="polite">Swipe the dice up to throw them</p>
           <button class="btn btn-gold btn-lg btn-block" id="btn-roll" type="button"><span class="lbl">Roll the dice</span></button>
           <button class="btn btn-quiet" id="btn-motion" type="button" hidden><svg class="icon"><use href="#i-shake"/></svg>Turn on shake to roll</button>
+        </div>
+        <div class="fun" id="fun">
+          <button class="btn btn-ghost btn-sm" id="btn-fun" type="button"><svg class="icon"><use href="#i-dice"/></svg><span class="lbl">Roll again for fun</span></button>
+          <p class="fun-note" id="fun-note">Just for fun. Your reward is locked in and won't change.</p>
         </div>
       </div>
 

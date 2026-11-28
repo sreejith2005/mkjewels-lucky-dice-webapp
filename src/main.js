@@ -29,7 +29,7 @@ const DEFAULT_CONFIG = {
 };
 const OFFERS = { 2: 20, 3: 22, 4: 24, 5: 26, 6: 28, 7: 30, 8: 33, 9: 36, 10: 40, 11: 45, 12: 50 };
 
-const S = { config: DEFAULT_CONFIG, session: store.get(SESSION_KEY), firstName: '', result: null, claim: null, hero: null, game: null, stageMod: null, ref: '' };
+const S = { config: DEFAULT_CONFIG, session: store.get(SESSION_KEY), firstName: '', result: null, claim: null, game: null, fun: false, stageMod: null, ref: '' };
 
 /* ================================================================ theme */
 const themeBtn = $('.theme-toggle');
@@ -56,7 +56,7 @@ let current = null;
 function go(name, { scroll = true } = {}) {
   views.forEach((v) => { v.hidden = v.dataset.view !== name; });
   current = name;
-  if (name === 'welcome') ensureHero(); else disposeHero();
+  if (name === 'welcome') film.show(); else film.leave();
   if (name !== 'play') disposeGame();
   if (scroll) window.scrollTo(0, 0);
   document.title = { welcome: 'MK Jewels – Lucky Double Dice', register: 'Your details · MK Jewels', play: 'Your roll · MK Jewels', online: 'Shop online · MK Jewels', store: 'Book a store visit · MK Jewels' }[name] || document.title;
@@ -69,9 +69,44 @@ function makeStage(host, mode) {
   }
   return S.Fallback ? new S.Fallback(host) : null;
 }
-function ensureHero() { if (!S.hero && S.stageMod) S.hero = makeStage($('#stage-welcome'), 'showcase'); }
-function disposeHero() { if (S.hero) { S.hero.dispose(); S.hero = null; } }
-function disposeGame() { if (document.getElementById('howto').open) document.getElementById('howto').close(); if (S.game) { S.game.dispose(); S.game = null; } roll = null; S.rolling = false; shake.stop(); }
+/* ---------------------------------------------------------------- campaign film (home screen) */
+const film = (() => {
+  const v = $('#film-video'), soundBtn = $('#film-sound'), playBtn = $('#film-play');
+  const conn = navigator.connection || {};
+  const saveData = !!conn.saveData || /(^|-)2g$/.test(conn.effectiveType || '');
+  const autoplay = !reduced && !saveData;
+  let loaded = false;
+  const load = () => {
+    if (loaded) return; loaded = true;
+    const big = Math.min(innerWidth, 1400) * (devicePixelRatio || 1) >= 1500 && !saveData;
+    v.src = big ? '/film/jiyo-saj-ke-1080.mp4' : '/film/jiyo-saj-ke-720.mp4';
+  };
+  const paint = () => {
+    const on = !v.muted && !v.paused;
+    soundBtn.setAttribute('aria-pressed', String(on));
+    soundBtn.setAttribute('aria-label', on ? 'Mute the film' : 'Play the film with sound');
+    $('use', soundBtn).setAttribute('href', on ? '#i-sound' : '#i-mute');
+    if (!v.paused) playBtn.hidden = true;
+  };
+  const play = () => { load(); const p = v.play(); if (p && p.catch) p.catch(() => { playBtn.hidden = false; }); };
+  const setSound = (on) => {
+    v.muted = !on;
+    if (on) { play(); playBtn.hidden = true; }
+    paint();
+  };
+  soundBtn.addEventListener('click', (e) => { e.stopPropagation(); sfx.unlockAudio(); setSound(v.muted || v.paused); });
+  v.addEventListener('click', () => setSound(v.muted || v.paused));
+  playBtn.addEventListener('click', () => { playBtn.hidden = true; setSound(true); });
+  ['play', 'pause', 'volumechange'].forEach((ev) => v.addEventListener(ev, paint));
+  return {
+    /** Home screen: play silently (sound only when asked). */
+    show() { if (autoplay) { v.muted = true; play(); } else { playBtn.hidden = false; } paint(); },
+    /** Leaving home: stop the film so it never plays over the dice. */
+    leave() { if (!v.paused) v.pause(); v.muted = true; paint(); }
+  };
+})();
+
+function disposeGame() { if (document.getElementById('howto').open) document.getElementById('howto').close(); if (S.game) { S.game.dispose(); S.game = null; } roll = null; S.rolling = false; S.fun = false; S.funReady = false; funShake = null; shake.stop(); }
 function ensureGame() {
   disposeGame();
   S.game = makeStage($('#stage-play'), 'game');
@@ -110,13 +145,14 @@ function wireGame(stage) {
   stage.on('throw', () => { sfx.whoosh(); buzz(14, 0); });
   stage.on('settled', () => buzz(22, 0));
   stage.on('grab', () => { sfx.unlockAudio(); buzz(6, 0); setHint('Now swipe up and let go'); });
-  stage.on('swipe', ({ velocity }) => startRoll('swipe', { velocity }));
+  stage.on('pick', () => { if (S.result && !S.fun) { prepareFun(); haptic(6); } });
+  stage.on('swipe', ({ velocity }) => { if (S.result) funRoll('swipe', { velocity }); else startRoll('swipe', { velocity }); });
 }
 
 /* ================================================================ shake to roll */
 const shake = shakeDetector({
-  enabled: () => current === 'play' && !S.rolling && !S.result && playView.dataset.state === 'ready',
-  onStart: () => { startRoll('shake'); },
+  enabled: () => current === 'play' && !S.rolling && (S.result ? S.funReady && !S.fun : playView.dataset.state === 'ready'),
+  onStart: () => { if (S.result) funRoll('shake'); else startRoll('shake'); },
   onMove: (x, y, z) => S.game && S.game.shakeInput(x, y, z),
   onEnd: ({ power }) => releaseShake(power)
 });
@@ -333,6 +369,7 @@ function startRoll(source, { velocity = null } = {}) {
 }
 
 function releaseShake(power) {
+  if (S.fun && funShake) { const f = funShake; funShake = null; f(Math.max(0.3, power)); return; }
   const r = roll;
   if (!r || r.source !== 'shake' || r.released) return;
   r.released = true; r.power = Math.max(0.3, power);
@@ -360,6 +397,41 @@ function failRoll(err) {
   playView.dataset.state = 'ready'; $('#btn-roll').disabled = false; setHint(readyHint());
   toast(err.message, 'error');
   if (err.code === 'NO_SESSION') { store.del(SESSION_KEY); S.session = null; setTimeout(() => { resetRegistration(); go('register'); }, 1200); }
+}
+
+/* ================================================================ fun rolls (after the real one) */
+// The reward is fixed by the first, server-decided roll. Extra rolls are local, random and only for fun:
+// they never call the server and never change the coupon.
+let funShake = null;
+function funValues() { const d = () => 1 + Math.floor(Math.random() * 6); return [d(), d()]; }
+function prepareFun() {
+  if (!S.game || S.fun) return;
+  S.funReady = true;
+  $('#dice-readout').classList.remove('on');
+  S.game.reset(); S.game.setLocked(false);
+  $('#fun-note').innerHTML = `Swipe the dice, shake your phone or tap again. Your <b>${S.result.offer}%</b> reward is locked in.`;
+  $('.lbl', $('#btn-fun')).textContent = 'Roll for fun';
+  if (motionSupported() && motionPermission() === 'granted') shake.start();
+}
+async function funRoll(source, { velocity = null } = {}) {
+  if (!S.game || S.fun || !S.result || current !== 'play') return;
+  if (!S.funReady) { prepareFun(); await delay(reduced ? 100 : 600); }
+  S.fun = true; S.funReady = false;
+  const btn = $('#btn-fun'); btn.disabled = true;
+  S.game.setLocked(true); sfx.unlockAudio(); haptic(10);
+  S.game.beginAwait(source === 'shake' ? 'shake' : 'auto');
+  let power = 0.55;
+  if (source === 'shake') power = await new Promise((res) => { funShake = res; setTimeout(() => { if (funShake === res) { funShake = null; res(0.6); } }, 2500); });
+  else await delay(source === 'button' ? (reduced ? 150 : 650) : 150);
+  const v = funValues();
+  await S.game.throw(v, { velocity, power });
+  if (!S.game) { S.fun = false; return; }
+  $('#dice-readout').innerHTML = `<span>Fun roll · ${v[0]} + ${v[1]} = <b>${v[0] + v[1]}</b></span>`;
+  $('#dice-readout').classList.add('on');
+  $('#fun-note').innerHTML = `Just for fun. Your reward stays <b>${S.result.offer}%</b>, set by your first roll.`;
+  $('.lbl', btn).textContent = 'Roll again for fun';
+  btn.disabled = false; S.fun = false;
+  if (v[0] === 6 && v[1] === 6) toast('Double six, just for fun!');
 }
 
 /* ================================================================ reveal */
@@ -391,6 +463,10 @@ function revealResult(r, { animate, returning } = {}) {
       if (y > scrollY + 40 && innerWidth < 1024) window.scrollTo({ top: y, behavior: reduced ? 'auto' : 'smooth' });
     }, 900);
   } else offerEl.textContent = r.offer;
+  S.fun = false; S.funReady = false;
+  if (S.game) S.game.setLocked(false);
+  $('#btn-fun').disabled = false; $('.lbl', $('#btn-fun')).textContent = 'Roll again for fun';
+  $('#fun-note').innerHTML = `Just for fun. Your <b>${r.offer}%</b> reward is locked in and won't change.`;
   paintClaimStatus(r);
   // The coupon code, QR and claim options stay hidden until the coupon has been downloaded once
   showCoupon(returning || done || store.get(revealKey(r)) === '1', false);
@@ -435,6 +511,7 @@ function paintClaimStatus(r) {
 }
 
 function bindResultActions() {
+  $('#btn-fun').addEventListener('click', () => { sfx.tap(); funRoll('button'); });
   $('#btn-roll').addEventListener('click', () => startRoll('button'));
   $('#btn-copy').addEventListener('click', async () => {
     if (!(await copyText(S.result.couponCode))) return;

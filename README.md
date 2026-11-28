@@ -53,7 +53,7 @@ Upload `dist/` to any static host. Recommended: point a subdomain such as `lucky
 
 ## 3. How it works
 
-**Customer journey:** invitation link → welcome → registration (name, mobile with +91 default, city, PIN code; birthday and anniversary optional) → 3D dice → reward, coupon code and two QR codes → online enquiry *or* store booking.
+**Customer journey:** invitation link → welcome (the *Jiyo Saj Ke* campaign film plays silently; tap for sound, it stops when they move on) → registration (name, mobile with +91 default, city, PIN code; birthday and anniversary optional) → 3D dice → reward, coupon code and two QR codes → online enquiry *or* store booking.
 
 **Discount table** (server-side; the browser can't influence it):
 
@@ -62,6 +62,8 @@ Upload `dist/` to any static host. Recommended: point a subdomain such as `lucky
 | Off making charges | 20% | 22% | 24% | 26% | 28% | 30% | 33% | 36% | 40% | 45% | **50% jackpot** |
 
 **How the dice land on the server's result:** the server rolls first, using a cryptographically secure random source, and saves the result. The phone then runs a full physics simulation of your throw, with gravity, bounces, friction, and dice hitting each other and the gold rim. It checks the trajectory, rejecting any where a die rests on an edge, hits an invisible wall or ends against the rim. Once a good trajectory is found, it relabels the cube's faces before the throw starts, so the face that physically lands on top is the official result. What you see is genuine physics, and the numbers never change after landing. All 36 combinations are verified in tests. Sounds and phone vibrations are driven by the actual collisions.
+
+**Fun rolls:** after the real roll, players can keep rolling just for fun ("Roll again for fun"). These rolls are random, stay on the phone and never touch the server, so the reward from the first roll never changes. The page says so right under the button.
 
 **QR codes:** each reward gets two different 32-character random tokens, one for *Online Claim* and one for *Store Visit*. Only SHA-256 hashes are stored in the sheet, and the QR codes contain no personal data. They are identical on every refresh, and the Store QR always points to the latest appointment, even after rescheduling.
 

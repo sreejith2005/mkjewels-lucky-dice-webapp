@@ -1,7 +1,7 @@
 /**
- * Synthesised dice sound design (no audio files): ringing gold clinks when the dice meet, ticks
- * off the gold rails, velvet thuds, a whoosh on release, a rattle in the hand, and reveal chimes.
- * Ported from the approved motion study and mixed louder. Audio starts only after a user gesture.
+ * Synthesised dice sound design (no audio files). Impacts use short modal "knocks" (dry resin
+ * clacks between dice, muffled toks on the velvet, firmer knocks off the rails, quick ticks while
+ * the dice tumble) instead of ringing bells. Reveal chimes are kept. Audio starts only after a user gesture.
  */
 let ctx = null, master = null, noise = null, lastHit = 0;
 let enabled = (() => { try { return localStorage.getItem('mk_sound') !== 'off'; } catch (e) { return true; } })();
@@ -60,42 +60,68 @@ function noiseBurst(type, freq, q, dur, gain, delay = 0, sweepTo) {
   src.connect(f).connect(g).connect(master); src.start(t, Math.random() * 0.5); src.stop(t + dur + 0.05);
 }
 
-/** Dice against dice: a bright gold clink. */
+/**
+ * A short modal "knock": a few inharmonic resonances that die away in tens of milliseconds plus a
+ * filtered noise transient. This is what a hard resin die sounds like (a dry clack, not a bell).
+ */
+function knock(modes, decay, gain, { noiseType = 'bandpass', noiseF = 3000, noiseQ = 0.9, noiseDur = 0.012, noiseGain = 1, pan = 0, delay = 0 } = {}) {
+  const t = ctx.currentTime + delay + Math.random() * 0.004;
+  const out = ctx.createGain(); out.gain.value = gain;
+  if (ctx.createStereoPanner) { const p = ctx.createStereoPanner(); p.pan.value = pan; out.connect(p).connect(master); } else out.connect(master);
+  const jitter = 0.92 + Math.random() * 0.16;
+  modes.forEach(([f, a, dk = 1]) => {
+    const o = ctx.createOscillator(), g = ctx.createGain(), d = decay * dk;
+    o.type = 'sine'; o.frequency.value = f * jitter;
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(a, t + 0.0015); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g).connect(out); o.start(t); o.stop(t + d + 0.02);
+  });
+  const src = ctx.createBufferSource(); src.buffer = noise;
+  const f = ctx.createBiquadFilter(); f.type = noiseType; f.frequency.value = noiseF * jitter; f.Q.value = noiseQ;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(0.0001, t); ng.gain.exponentialRampToValueAtTime(noiseGain, t + 0.001); ng.gain.exponentialRampToValueAtTime(0.0001, t + noiseDur);
+  src.connect(f).connect(ng).connect(out); src.start(t, Math.random() * 0.8); src.stop(t + noiseDur + 0.02);
+}
+
+let lastFloor = 0;
+/** Die against die: the sharp, dry "clack" of two resin dice. */
 export function clink(strength, pan = 0) {
   if (!ready()) return;
-  const now = performance.now(); if (now - lastHit < 35) return; lastHit = now;
-  const s = Math.min(1, strength / 9);
-  bell(1650 + Math.random() * 700, [1, 2.76, 5.4, 8.93], 0.18 + s * 0.35, 0.09 + s * 0.33, 0, pan);
-  noiseBurst('highpass', 3000, 0.7, 0.03, 0.06 + s * 0.12);
+  const now = performance.now(); if (now - lastHit < 30) return; lastHit = now;
+  const s = Math.min(1, strength / 8);
+  knock([[2650, 0.5], [4120, 0.35, 0.8], [6300, 0.22, 0.6], [8900, 0.12, 0.45]], 0.035 + s * 0.03, 0.22 + s * 0.55,
+    { noiseF: 4200, noiseQ: 0.8, noiseDur: 0.01 + s * 0.008, noiseGain: 0.9, pan });
 }
-/** Dice landing on velvet. */
-export function thud(strength) {
+/** Die landing on the velvet: a muffled "tok", with a little click from the hard corner. */
+export function thud(strength, pan = 0) {
   if (!ready()) return;
-  const s = Math.min(1, strength / 10);
-  noiseBurst('lowpass', 260 + s * 300, 0.7, 0.07 + s * 0.05, 0.25 + s * 0.6);
-  noiseBurst('bandpass', 2400, 1.4, 0.02, 0.03 + s * 0.08);
+  const now = performance.now(); if (now - lastFloor < 22) return; lastFloor = now;
+  const s = Math.min(1, strength / 9);
+  knock([[180 + s * 60, 0.6, 1.6], [520, 0.25], [1350, 0.18, 0.6], [2900, 0.08 * (0.4 + s), 0.4]], 0.03 + s * 0.035, 0.12 + s * 0.75,
+    { noiseType: 'lowpass', noiseF: 900 + s * 1600, noiseQ: 0.6, noiseDur: 0.02 + s * 0.02, noiseGain: 1 });
 }
-/** Dice off the gold rail. */
+/** Die off the gold rail: a firmer, brighter knock. */
 export function tick(strength, pan = 0) {
   if (!ready()) return;
-  const s = Math.min(1, strength / 9);
-  bell(2900 + Math.random() * 600, [1, 2.3, 4.1], 0.09 + s * 0.12, 0.07 + s * 0.24, 0, pan);
-  noiseBurst('bandpass', 1800, 2, 0.04, 0.08 + s * 0.16);
+  const s = Math.min(1, strength / 8);
+  knock([[1150, 0.4], [2350, 0.4, 0.8], [3900, 0.25, 0.6], [6100, 0.12, 0.5]], 0.04 + s * 0.04, 0.2 + s * 0.6,
+    { noiseF: 2600, noiseQ: 0.9, noiseDur: 0.012 + s * 0.01, noiseGain: 0.8, pan });
 }
 /** Physics impact → sound. */
 export function impact({ kind, strength, pan = 0 }) {
   if (kind === 'dice') clink(strength, pan);
   else if (kind === 'wall') tick(strength, pan);
-  else thud(strength);
+  else thud(strength, pan);
 }
-/** The release. */
-export function whoosh() { if (ready()) noiseBurst('bandpass', 380, 1.2, 0.55, 0.3, 0, 1400); }
-/** Dice knocking together in the hand. */
+/** The release: a soft air movement, barely there. */
+export function whoosh() { if (ready()) noiseBurst('bandpass', 500, 0.9, 0.28, 0.12, 0, 1600); }
+/** Dice knocking together in a cupped hand. */
 export function rattle(strength = 0.6) {
   if (!ready()) return;
-  bell(2100 + Math.random() * 500, [1, 2.76, 5.4], 0.12, 0.06 + strength * 0.08, 0, (Math.random() - 0.5) * 0.4);
-  if (Math.random() < 0.6) bell(2500 + Math.random() * 600, [1, 2.76], 0.08, 0.04 + strength * 0.05, 0.02 + Math.random() * 0.03);
-  noiseBurst('lowpass', 500, 0.7, 0.03, 0.05 + strength * 0.08);
+  const pan = (Math.random() - 0.5) * 0.3;
+  knock([[2500, 0.45], [3900, 0.3, 0.8], [6000, 0.18, 0.6]], 0.03, 0.12 + strength * 0.22, { noiseF: 3800, noiseDur: 0.008, noiseGain: 0.8, pan });
+  if (Math.random() < 0.55) knock([[2800, 0.4], [4500, 0.25, 0.7]], 0.025, 0.08 + strength * 0.14, { noiseF: 4200, noiseDur: 0.007, noiseGain: 0.7, pan: -pan, delay: 0.025 + Math.random() * 0.03 });
+  // skin and palm: a soft low knock
+  knock([[220, 0.5, 1.4], [640, 0.2]], 0.03, 0.05 + strength * 0.08, { noiseType: 'lowpass', noiseF: 700, noiseDur: 0.02, noiseGain: 0.6 });
 }
 
 export function reveal() {

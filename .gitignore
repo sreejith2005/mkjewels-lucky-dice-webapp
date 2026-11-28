@@ -1,3 +1,8 @@
 node_modules
 dist
 .env
+
+# source masters (too large / reference only); web encodes live in public/film
+public/brand/*.mov
+public/brand/MK_Socialmedia-*.jpg
+MK Jewels*Lucky Double Dice.html
